@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101114">
+    <meta name="description" content="PyCompiler eğitim dilini JavaScript, C++, C#, PHP ve Python kaynak koduna dönüştürün.">
+    <title>PyCompiler Studio</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./src/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="PyCompiler Studio home">
+          <span class="brand-mark" aria-hidden="true">&lt;/&gt;</span>
+          <span>pycompiler<span class="brand-dot">.</span></span>
+          <span class="brand-tag">STUDIO</span>
+        </a>
+        <div class="topbar-right">
+          <span class="runtime-badge"><span class="live-dot"></span> Tarayıcı çalışma ortamı</span>
+          <a class="source-link" href="./README.md">Dokümantasyon <span aria-hidden="true">↗</span></a>
+        </div>
+      </header>
+
+      <main>
+        <section class="welcome">
+          <div>
+            <p class="eyebrow"><span class="eyebrow-line"></span> KODUNU YAZ, HEDEF DİLİNİ SEÇ</p>
+            <h1>Yaz. <span>Dönüştür.</span></h1>
+            <p class="welcome-copy">Eğitim dilindeki programını seçtiğin dilde kaynak koda dönüştür.</p>
+          </div>
+          <div class="workspace-pickers">
+            <label class="sample-picker">
+            <span id="sample-label">ÖRNEK PROGRAM</span>
+            <select id="sample-select" aria-label="Örnek program seç">
+              <option value="countdown">Geri sayım</option>
+              <option value="fibonacci">Fibonacci</option>
+              <option value="branches">Koşullar</option>
+            </select>
+            </label>
+            <label class="sample-picker">
+              <span>HEDEF DİL</span>
+              <select id="target-select" aria-label="Hedef dili seç">
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript</option>
+                <option value="cpp">C++</option>
+                <option value="csharp">C#</option>
+                <option value="php">PHP</option>
+                <option value="sql">SQL sorgu editörü</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="workspace" aria-label="Derleyici çalışma alanı">
+          <article class="panel editor-panel">
+            <div class="panel-heading">
+              <div class="editor-tools">
+                <div class="panel-title"><span class="file-icon" aria-hidden="true">⌘</span><span id="source-filename">main.pc</span><span id="source-kind" class="file-pill">PYCOMPILER</span></div>
+                <label class="source-language-picker">
+                  <span>GİRDİ DİLİ</span>
+                  <select id="source-language-select" aria-label="Kaynak kod dilini seç">
+                    <option value="pycompiler">PyCompiler</option>
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="cpp">C++</option>
+                    <option value="csharp">C#</option>
+                    <option value="c">C</option>
+                    <option value="java">Java</option>
+                    <option value="php">PHP</option>
+                    <option value="sql">SQL</option>
+                    <option value="html">HTML</option>
+                    <option value="css">CSS</option>
+                  </select>
+                </label>
+              </div>
+              <button id="reset-button" class="icon-button" type="button" title="Seçili örneği geri yükle">↺ <span>Sıfırla</span></button>
+            </div>
+            <div class="editor-wrap">
+              <div id="line-numbers" class="line-numbers" aria-hidden="true">1</div>
+              <textarea id="source-editor" aria-label="Kaynak kod düzenleyicisi" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+            </div>
+            <footer class="editor-footer">
+              <span><span class="language-dot"></span> <span id="source-description">PyCompiler eğitim dili</span></span>
+              <span id="editor-stats">1 line · 0 chars</span>
+            </footer>
+          </article>
+
+          <div class="workspace-divider" aria-hidden="true"><span>›</span></div>
+
+          <article class="panel result-panel">
+            <div class="result-tabs" role="tablist" aria-label="Program results">
+              <button id="python-tab" class="result-tab active" type="button" role="tab" aria-selected="true" aria-controls="python-output">Üretilen kod <span id="target-badge" class="tab-language">PY</span></button>
+              <button id="console-tab" class="result-tab" type="button" role="tab" aria-selected="false" aria-controls="console-output">Çıktı <span id="console-count" class="console-count">0</span></button>
+              <button id="validation-tab" class="result-tab" type="button" role="tab" aria-selected="false" aria-controls="validation-output">Denetim <span id="validation-count" class="console-count">—</span></button>
+              <span id="compile-state" class="compile-state"><span class="state-dot"></span> Ready</span>
+            </div>
+            <div class="result-content">
+              <pre id="python-output" class="code-output" role="tabpanel" aria-labelledby="python-tab"><code></code></pre>
+              <div id="console-output" class="console-output" role="tabpanel" aria-labelledby="console-tab" hidden>
+                <div class="console-heading"><span class="console-prompt">&gt;_</span> PYCOMPILER TARAYICI YORUMLAYICISI</div>
+                <pre id="console-text" class="console-text">Programı çalıştırdığınızda çıktı burada görünecek.</pre>
+              </div>
+              <div id="validation-output" class="validation-output" role="tabpanel" aria-labelledby="validation-tab" hidden>
+                <div class="console-heading">DERLEYİCİ VE SORGU DENETİMİ</div>
+                <pre id="validation-text" class="console-text">Denetim sonucunu görmek için denetim düğmesine basın.</pre>
+              </div>
+            </div>
+            <footer class="result-footer"><span id="generated-note">PyCompiler → Python kaynak kodu</span><span id="result-extension">.py</span></footer>
+          </article>
+        </section>
+
+        <div class="actionbar">
+          <div id="target-note" class="keyboard-hint">Çıktı kaynak koddur; harici derleyici bu uygulamaya dahil değildir.</div>
+          <div class="action-buttons">
+            <button id="download-button" class="secondary-button" type="button"><span aria-hidden="true">↓</span> Dosyayı indir</button>
+            <button id="generate-button" class="secondary-button" type="button">Kodu dönüştür</button>
+            <button id="validate-button" class="secondary-button" type="button">Kodu denetle</button>
+            <button id="run-button" class="run-button" type="button"><span class="run-icon" aria-hidden="true">▶</span> Kaynağı çalıştır <kbd>⌘↵</kbd></button>
+          </div>
+        </div>
+
+        <section class="feature-strip" aria-label="Language features">
+          <div><span class="feature-icon feature-purple">λ</span><span><strong>Çoklu hedef dil</strong><small>JS, C++, C#, PHP ve Python</small></span></div>
+          <div><span class="feature-icon feature-green">{ }</span><span><strong>Kaynak kod üretimi</strong><small>Oluştur ve dışa aktar</small></span></div>
+          <div><span class="feature-icon feature-orange">◉</span><span><strong>SQL sorgu modu</strong><small>Yapısal denetim · veritabanında çalıştırmaz</small></span></div>
+        </section>
+      </main>
+      <footer class="page-footer"><span>Meraklı zihinler için.</span><span>PYCOMPILER STUDIO <span class="brand-dot">·</span> 2026</span></footer>
+      <div id="announcement" class="visually-hidden" aria-live="polite" role="status"></div>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
