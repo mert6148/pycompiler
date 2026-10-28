@@ -1,12 +1,24 @@
 const statementStarters = new Set([
+  "ANALYZE",
   "ALTER",
+  "CALL",
+  "CHECK",
   "COMMIT",
   "CREATE",
   "DELETE",
   "DESCRIBE",
+  "DO",
   "DROP",
   "EXPLAIN",
+  "FLUSH",
+  "GRANT",
   "INSERT",
+  "LOCK",
+  "OPTIMIZE",
+  "RENAME",
+  "REPAIR",
+  "REPLACE",
+  "REVOKE",
   "ROLLBACK",
   "SELECT",
   "SET",
@@ -14,6 +26,7 @@ const statementStarters = new Set([
   "START",
   "TRUNCATE",
   "UPDATE",
+  "UNLOCK",
   "USE",
   "WITH",
 ]);
@@ -95,7 +108,7 @@ export function validateSql(source) {
       }
       parentheses.pop();
     } else if (character === ";") {
-      statements.push({ text: source.slice(statementStart, index), mask: mask.slice(statementStart, index).join(""), start: statementStart });
+      statements.push({ mask: mask.slice(statementStart, index).join(""), start: statementStart });
       statementStart = index + 1;
     } else {
       mask[index] = character;
@@ -112,7 +125,7 @@ export function validateSql(source) {
     throw new SqlValidationError("Kapatılmamış '(' parantezi.", source, parentheses.at(-1));
   }
 
-  statements.push({ text: source.slice(statementStart), mask: mask.slice(statementStart).join(""), start: statementStart });
+  statements.push({ mask: mask.slice(statementStart).join(""), start: statementStart });
   const nonEmptyStatements = statements.filter(({ mask: statementMask }) => statementMask.trim());
   if (!nonEmptyStatements.length) {
     throw new SqlValidationError("Denetlenecek bir SQL sorgusu bulunamadı.", source, 0);

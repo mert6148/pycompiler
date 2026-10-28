@@ -35,6 +35,7 @@ Derleyiciye `/app/` yolundan da ulaşılabilir; bu sayfa ana arayüze yönlendir
   tarayıcıda çalıştırma ve dışa aktarma.
 - `src/styles.css`: responsive arayüz stilleri.
 - `test/compiler.test.js`: kütüphane için Node.js testleri.
+- `test/sql-validator.test.js`: SQL yapısal denetimi testleri.
 - `test/transpiler.test.js`: hedef dil kod üretimi testleri.
 
 ## Kütüphane API'si

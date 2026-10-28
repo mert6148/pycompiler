@@ -1,14 +1,36 @@
-…or create a new repository on the command line
-echo "# pycompiler" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/mert6148/pycompiler.git
-git push -u origin main
+PyCompiler projesini mevcut GitHub deposuna tek seferde gönderme
+===============================================================
 
+PowerShell'de aşağıdaki bloğu proje kök klasöründe çalıştırın. Komutlar
+projedeki değişiklikleri stage eder, kontrol eder, commit oluşturur, GitHub'daki
+main dalındaki yenilikleri alıp birleştirir ve origin/main'e gönderir.
 
-…or push an existing repository from the command line
-git remote add origin https://github.com/mert6148/pycompiler.git
-git branch -M main
-git push -u origin
+  $ErrorActionPreference = "Stop"
+  Set-Location "C:\Users\mertd\OneDrive\Masaüstü\pycompiler"
+
+  git status --short
+  git add -A -- . ":(exclude)app/google-api-python-client"
+  if ($LASTEXITCODE -ne 0) { throw "Dosyalar stage edilemedi." }
+
+  git diff --cached --stat
+
+  git commit -m "Update PyCompiler project"
+  if ($LASTEXITCODE -ne 0) { throw "Commit oluşturulamadı; Git kullanıcı ayarlarını ve değişiklikleri kontrol edin." }
+
+  git pull --rebase origin main
+  if ($LASTEXITCODE -ne 0) { throw "Uzak değişiklikler alınamadı veya rebase çakışması oluştu. Çakışmaları çözüp tekrar deneyin." }
+
+  git push -u origin main
+  if ($LASTEXITCODE -ne 0) { throw "GitHub'a gönderilemedi. Kimlik doğrulamayı ve uzak depo erişimini kontrol edin." }
+
+  git status --short
+
+Notlar:
+- Depoda origin uzak adresi ve main dalı zaten tanımlı; git init veya remote
+  ekleme komutu gerekmez.
+- app/google-api-python-client ayrı bir Git alt deposudur. İçindeki yerel
+  doküman değişiklikleri bu komutlarla ana projeye eklenmez. Bu değişiklikleri
+  göndermek istiyorsanız önce alt deponun kendi içinde commit edip push edin,
+  sonra ana depodaki alt depo referansını ayrıca güncelleyin.
+- GitHub kimlik doğrulaması gerekir. Parola veya token'ı komut satırına
+  yazmayın; Git Credential Manager veya GitHub CLI kimlik doğrulamasını kullanın.

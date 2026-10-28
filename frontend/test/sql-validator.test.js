@@ -17,6 +17,10 @@ CREATE TABLE compiler_programs (
 );`), { statementCount: 3 });
 });
 
+test("recognizes quoted values and identifiers as SQL expressions", () => {
+  assert.deepEqual(validateSql("SELECT 'PyCompiler'; SELECT `release_year`;"), { statementCount: 2 });
+});
+
 test("reports unclosed delimiters and mismatched parentheses with source position", () => {
   assert.throws(() => validateSql("SELECT (1"), (error) => {
     assert.ok(error instanceof SqlValidationError);
