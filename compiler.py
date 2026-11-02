@@ -490,6 +490,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     except CompileError as error:
         print(error, file=sys.stderr)
         return 1
+    except UnicodeDecodeError as error:
+        print(
+            f"{arguments.file}: source file is not valid UTF-8 "
+            f"(byte {error.start})",
+            file=sys.stderr,
+        )
+        return 1
     except OSError as error:
         argument_parser.error(str(error))
     return 0

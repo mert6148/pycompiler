@@ -58,7 +58,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             url = f"http://{arguments.host}:{arguments.port}/"
             print(f"PyCompiler Studio is running at {url} (press Ctrl+C to stop)")
             if arguments.open_browser:
-                webbrowser.open(url)
+                try:
+                    opened = webbrowser.open(url)
+                except (webbrowser.Error, OSError) as error:
+                    print(f"Could not open a browser: {error}. Visit {url} manually.")
+                else:
+                    if not opened:
+                        print(f"Could not open a browser. Visit {url} manually.")
             server.serve_forever()
     except KeyboardInterrupt:
         print("\nPyCompiler Studio stopped.")
