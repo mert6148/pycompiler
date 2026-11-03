@@ -1,7 +1,6 @@
 -- MySQL / MariaDB schema for program storage and revision history.
 -- Run this script in phpMyAdmin or a MySQL-compatible client.
--- The current PyCompiler frontend does not connect to this database; a backend
--- API is required before the UI can save or load programs.
+-- The local Python API uses these tables for saved programs and revision history.
 -- This script is for a new installation. CREATE TABLE IF NOT EXISTS does not
 -- migrate tables that were created by an older version of this script.
 
