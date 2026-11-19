@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1e1e1e">
+    <title>Rust IDE</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <div class="app">
+      <header class="titlebar">
+        <div class="brand"><span class="brand-mark">R</span><span>Rust IDE</span></div>
+        <div class="window-title">pycompiler — main.rusty</div>
+        <div class="title-actions"><span>●</span><span>◻</span><span>×</span></div>
+      </header>
+
+      <div class="workbench">
+        <nav class="activity-bar" aria-label="Etkinlikler">
+          <button class="activity active" aria-label="Dosyalar" title="Dosyalar">▤</button>
+          <button class="activity" aria-label="Arama" title="Arama">⌕</button>
+          <button class="activity" aria-label="Kaynak kodu" title="Kaynak kodu">⑂</button>
+          <div class="activity-spacer"></div>
+          <button class="activity" aria-label="Ayarlar" title="Ayarlar">⚙</button>
+        </nav>
+
+        <aside class="explorer">
+          <div class="section-heading">GEZGİN</div>
+          <div class="project-name"><span class="chevron">⌄</span> PYCOMPILER</div>
+          <button class="file-entry selected"><span class="file-icon">R</span> main.rusty</button>
+          <div class="explorer-note">Mini dil dosyaları<br><span>Rust derleyicisi ile çalışır</span></div>
+        </aside>
+
+        <main class="main">
+          <div class="tabbar">
+            <div class="tab active"><span class="file-icon">R</span> main.rusty <span class="tab-close">×</span></div>
+            <div class="run-group">
+              <button id="run-button" class="run-button" title="Çalıştır (Ctrl+Enter)"><span>▶</span> Çalıştır</button>
+            </div>
+          </div>
+
+          <div class="breadcrumb"><span>pycompiler</span><span>›</span><span>main.rusty</span></div>
+
+          <section class="editor-wrap" aria-label="Kod editörü">
+            <div id="gutter" class="gutter" aria-hidden="true"></div>
+            <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Kod editörü"></textarea>
+          </section>
+
+          <section class="panel">
+            <div class="panel-tabs">
+              <span class="panel-tab active">ÇIKTI</span>
+              <span class="panel-tab">SORUNLAR</span>
+              <span class="panel-tab">TERMİNAL</span>
+              <span id="panel-status" class="panel-status">Hazır</span>
+            </div>
+            <pre id="output" class="output">Program çıktısı burada görüntülenir.</pre>
+          </section>
+        </main>
+      </div>
+
+      <footer class="statusbar">
+        <div><span class="status-branch">⑂</span> main</div>
+        <div class="status-right"><span id="cursor-position">Satır 1, Sütun 1</span><span>UTF-8</span><span>Rusty</span><span>● Derleyici hazır</span></div>
+      </footer>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
