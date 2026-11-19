@@ -5,6 +5,7 @@ use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
 const MAX_REQUEST_SIZE: usize = 1024 * 1024;
+const MAX_EXECUTION_STEPS: usize = 1_000_000;
 const ADDRESS: &str = "127.0.0.1:3030";
 
 fn main() -> std::io::Result<()> {
@@ -199,6 +200,9 @@ impl std::error::Error for CompileError {}
 enum TokenKind {
     Let,
     Print,
+    If,
+    Else,
+    While,
     Identifier(String),
     Number(i64),
     Plus,
@@ -206,9 +210,17 @@ enum TokenKind {
     Star,
     Slash,
     Equal,
+    EqualEqual,
+    BangEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
     Semicolon,
     LeftParen,
     RightParen,
+    LeftBrace,
+    RightBrace,
     Eof,
 }
 
@@ -275,26 +287,46 @@ fn lex(source: &str) -> Result<Vec<Token>, CompileError> {
             match word.as_str() {
                 "let" => TokenKind::Let,
                 "print" => TokenKind::Print,
+                "if" => TokenKind::If,
+                "else" => TokenKind::Else,
+                "while" => TokenKind::While,
                 _ => TokenKind::Identifier(word),
             }
         } else {
-            index += 1;
-            column += 1;
-            match character {
-                '+' => TokenKind::Plus,
-                '-' => TokenKind::Minus,
-                '*' => TokenKind::Star,
-                '/' => TokenKind::Slash,
-                '=' => TokenKind::Equal,
-                ';' => TokenKind::Semicolon,
-                '(' => TokenKind::LeftParen,
-                ')' => TokenKind::RightParen,
-                _ => {
-                    return Err(CompileError::new(
-                        token_line,
-                        token_column,
-                        format!("unexpected character '{character}'"),
-                    ));
+            let two_character_token = match (character, characters.get(index + 1)) {
+                ('=', Some('=')) => Some(TokenKind::EqualEqual),
+                ('!', Some('=')) => Some(TokenKind::BangEqual),
+                ('<', Some('=')) => Some(TokenKind::LessEqual),
+                ('>', Some('=')) => Some(TokenKind::GreaterEqual),
+                _ => None,
+            };
+            if let Some(kind) = two_character_token {
+                index += 2;
+                column += 2;
+                kind
+            } else {
+                index += 1;
+                column += 1;
+                match character {
+                    '+' => TokenKind::Plus,
+                    '-' => TokenKind::Minus,
+                    '*' => TokenKind::Star,
+                    '/' => TokenKind::Slash,
+                    '=' => TokenKind::Equal,
+                    '<' => TokenKind::Less,
+                    '>' => TokenKind::Greater,
+                    ';' => TokenKind::Semicolon,
+                    '(' => TokenKind::LeftParen,
+                    ')' => TokenKind::RightParen,
+                    '{' => TokenKind::LeftBrace,
+                    '}' => TokenKind::RightBrace,
+                    _ => {
+                        return Err(CompileError::new(
+                            token_line,
+                            token_column,
+                            format!("unexpected character '{character}'"),
+                        ));
+                    }
                 }
             }
         };
@@ -322,8 +354,16 @@ enum Instruction {
     Subtract,
     Multiply,
     Divide,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
     Negate,
     Print,
+    Jump(usize),
+    JumpIfFalse(usize),
 }
 
 struct Parser {
@@ -351,6 +391,32 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<(), CompileError> {
+        if self.matches(&TokenKind::If) {
+            self.expression(0)?;
+            let false_jump = self.emit_jump_if_false();
+            self.block()?;
+
+            if self.matches(&TokenKind::Else) {
+                let end_jump = self.emit_jump();
+                self.patch_jump(false_jump);
+                self.block()?;
+                self.patch_jump(end_jump);
+            } else {
+                self.patch_jump(false_jump);
+            }
+            return Ok(());
+        }
+
+        if self.matches(&TokenKind::While) {
+            let loop_start = self.code.len();
+            self.expression(0)?;
+            let exit_jump = self.emit_jump_if_false();
+            self.block()?;
+            self.code.push(Instruction::Jump(loop_start));
+            self.patch_jump(exit_jump);
+            return Ok(());
+        }
+
         if self.matches(&TokenKind::Let) {
             let name = self.take_identifier("expected a variable name after 'let'")?;
             if self.declared.contains(&name) {
@@ -387,12 +453,12 @@ impl Parser {
             return Ok(());
         }
 
-        Err(self.error("expected a declaration, assignment, or print statement"))
+        Err(self.error("expected a declaration, assignment, print, if, or while statement"))
     }
 
     fn expression(&mut self, minimum_precedence: u8) -> Result<(), CompileError> {
         if self.matches(&TokenKind::Minus) {
-            self.expression(3)?;
+            self.expression(4)?;
             self.code.push(Instruction::Negate);
         } else if self.matches(&TokenKind::LeftParen) {
             self.expression(0)?;
@@ -423,10 +489,16 @@ impl Parser {
 
         loop {
             let (precedence, instruction) = match self.peek().kind {
-                TokenKind::Plus => (1, Instruction::Add),
-                TokenKind::Minus => (1, Instruction::Subtract),
-                TokenKind::Star => (2, Instruction::Multiply),
-                TokenKind::Slash => (2, Instruction::Divide),
+                TokenKind::EqualEqual => (1, Instruction::Equal),
+                TokenKind::BangEqual => (1, Instruction::NotEqual),
+                TokenKind::Less => (1, Instruction::Less),
+                TokenKind::LessEqual => (1, Instruction::LessEqual),
+                TokenKind::Greater => (1, Instruction::Greater),
+                TokenKind::GreaterEqual => (1, Instruction::GreaterEqual),
+                TokenKind::Plus => (2, Instruction::Add),
+                TokenKind::Minus => (2, Instruction::Subtract),
+                TokenKind::Star => (3, Instruction::Multiply),
+                TokenKind::Slash => (3, Instruction::Divide),
                 _ => break,
             };
             if precedence < minimum_precedence {
@@ -437,6 +509,42 @@ impl Parser {
             self.code.push(instruction);
         }
         Ok(())
+    }
+
+    fn block(&mut self) -> Result<(), CompileError> {
+        self.expect(&TokenKind::LeftBrace, "expected '{' before block")?;
+        let outer_variables = self.declared.clone();
+        while !self.check(&TokenKind::RightBrace) {
+            if self.check(&TokenKind::Eof) {
+                return Err(self.error("expected '}' after block"));
+            }
+            self.statement()?;
+        }
+        self.advance();
+        self.declared = outer_variables;
+        Ok(())
+    }
+
+    fn emit_jump(&mut self) -> usize {
+        let instruction = self.code.len();
+        self.code.push(Instruction::Jump(usize::MAX));
+        instruction
+    }
+
+    fn emit_jump_if_false(&mut self) -> usize {
+        let instruction = self.code.len();
+        self.code.push(Instruction::JumpIfFalse(usize::MAX));
+        instruction
+    }
+
+    fn patch_jump(&mut self, instruction: usize) {
+        let target = self.code.len();
+        match &mut self.code[instruction] {
+            Instruction::Jump(destination) | Instruction::JumpIfFalse(destination) => {
+                *destination = target;
+            }
+            _ => unreachable!("only jump instructions can be patched"),
+        }
     }
 
     fn take_identifier(&mut self, message: &str) -> Result<String, CompileError> {
@@ -494,8 +602,19 @@ fn execute(code: &[Instruction]) -> Result<String, CompileError> {
     let mut stack = Vec::new();
     let mut variables = HashMap::new();
     let mut output = String::new();
+    let mut instruction_pointer = 0;
+    let mut executed_instructions = 0;
 
-    for instruction in code {
+    while instruction_pointer < code.len() {
+        executed_instructions += 1;
+        if executed_instructions > MAX_EXECUTION_STEPS {
+            return Err(CompileError {
+                message: format!(
+                    "runtime error: execution limit exceeded ({MAX_EXECUTION_STEPS} instructions)"
+                ),
+            });
+        }
+        let instruction = &code[instruction_pointer];
         match instruction {
             Instruction::Push(value) => stack.push(*value),
             Instruction::Load(name) => {
@@ -524,6 +643,12 @@ fn execute(code: &[Instruction]) -> Result<String, CompileError> {
                         .ok_or_else(|| arithmetic_overflow("division"))?,
                 );
             }
+            Instruction::Equal => apply_comparison(&mut stack, |left, right| left == right)?,
+            Instruction::NotEqual => apply_comparison(&mut stack, |left, right| left != right)?,
+            Instruction::Less => apply_comparison(&mut stack, |left, right| left < right)?,
+            Instruction::LessEqual => apply_comparison(&mut stack, |left, right| left <= right)?,
+            Instruction::Greater => apply_comparison(&mut stack, |left, right| left > right)?,
+            Instruction::GreaterEqual => apply_comparison(&mut stack, |left, right| left >= right)?,
             Instruction::Negate => {
                 let value = stack.pop().ok_or_else(stack_underflow)?;
                 stack.push(
@@ -536,10 +661,31 @@ fn execute(code: &[Instruction]) -> Result<String, CompileError> {
                 let value = stack.pop().ok_or_else(stack_underflow)?;
                 output.push_str(&format!("{value}\n"));
             }
+            Instruction::Jump(target) => {
+                instruction_pointer = *target;
+                continue;
+            }
+            Instruction::JumpIfFalse(target) => {
+                if stack.pop().ok_or_else(stack_underflow)? == 0 {
+                    instruction_pointer = *target;
+                    continue;
+                }
+            }
         }
+        instruction_pointer += 1;
     }
 
     Ok(output)
+}
+
+fn apply_comparison(
+    stack: &mut Vec<i64>,
+    comparison: fn(i64, i64) -> bool,
+) -> Result<(), CompileError> {
+    let right = stack.pop().ok_or_else(stack_underflow)?;
+    let left = stack.pop().ok_or_else(stack_underflow)?;
+    stack.push(i64::from(comparison(left, right)));
+    Ok(())
 }
 
 fn apply_binary(
@@ -596,5 +742,49 @@ mod tests {
         let error =
             compile_and_run("print 8 / (3 - 3);").expect_err("division by zero should fail");
         assert_eq!(error.to_string(), "runtime error: division by zero");
+    }
+
+    #[test]
+    fn selects_if_else_branch_from_comparison() {
+        let output = compile_and_run("let value = 5; if value >= 5 { print 1; } else { print 0; }")
+            .expect("valid conditional should run");
+        assert_eq!(output, "1\n");
+    }
+
+    #[test]
+    fn supports_all_comparison_operators() {
+        let output = compile_and_run(
+            "print 1 == 1; print 1 != 2; print 1 < 2; print 2 <= 2; print 3 > 2; print 3 >= 3;",
+        )
+        .expect("valid comparisons should run");
+        assert_eq!(output, "1\n1\n1\n1\n1\n1\n");
+    }
+
+    #[test]
+    fn runs_while_loop_and_preserves_outer_variables() {
+        let output = compile_and_run(
+            "let total = 0; let index = 1; while index <= 5 { total = total + index; index = index + 1; } print total;",
+        )
+        .expect("valid loop should run");
+        assert_eq!(output, "15\n");
+    }
+
+    #[test]
+    fn keeps_block_variables_out_of_outer_scope() {
+        let error = compile_and_run("if 1 { let inside = 3; } print inside;")
+            .expect_err("block-local variable should not escape");
+        assert!(error.to_string().contains("undefined variable 'inside'"));
+    }
+
+    #[test]
+    fn reports_unclosed_blocks() {
+        let error = compile_and_run("if 1 { print 2;").expect_err("unclosed block should fail");
+        assert!(error.to_string().contains("expected '}' after block"));
+    }
+
+    #[test]
+    fn stops_non_terminating_loops_at_the_execution_limit() {
+        let error = compile_and_run("while 1 {}").expect_err("infinite loop should be stopped");
+        assert!(error.to_string().contains("execution limit exceeded"));
     }
 }
