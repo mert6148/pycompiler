@@ -6,6 +6,8 @@ use std::fmt;
 const MAX_EXECUTION_STEPS: usize = 1_000_000;
 const MAX_SOURCE_LENGTH: usize = 1024 * 1024;
 const MAX_BLOCK_DEPTH: usize = 128;
+// Keep recursive expression parsing and evaluation bounded for untrusted input.
+const MAX_EXPRESSION_DEPTH: usize = 128;
 
 /// A source or runtime error produced by the Rusty compiler.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -320,6 +322,8 @@ struct Parser {
     tokens: Vec<Token>,
     current: usize,
     loop_depth: usize,
+    expression_depth: usize,
+    expression_operators: usize,
     scopes: Vec<HashMap<String, Span>>,
 }
 
@@ -329,6 +333,8 @@ impl Parser {
             tokens,
             current: 0,
             loop_depth: 0,
+            expression_depth: 0,
+            expression_operators: 0,
             scopes: vec![HashMap::new()],
         }
     }
@@ -504,7 +510,39 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Result<Expression, CompileError> {
-        self.or_expression()
+        let span = self.peek().span;
+        let is_root = self.expression_depth == 0;
+        if is_root {
+            self.expression_operators = 0;
+        }
+        if self.expression_depth >= MAX_EXPRESSION_DEPTH {
+            return Err(CompileError::source(
+                span.line,
+                span.column,
+                "maximum expression nesting depth exceeded",
+            ));
+        }
+
+        self.expression_depth += 1;
+        let result = self.or_expression();
+        self.expression_depth -= 1;
+        if is_root {
+            self.expression_operators = 0;
+        }
+        result
+    }
+
+    fn count_expression_operator(&mut self, span: Span) -> Result<(), CompileError> {
+        self.expression_operators += 1;
+        if self.expression_operators > MAX_EXPRESSION_DEPTH {
+            Err(CompileError::source(
+                span.line,
+                span.column,
+                "maximum expression complexity exceeded",
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     fn or_expression(&mut self) -> Result<Expression, CompileError> {
@@ -957,7 +995,7 @@ impl Interpreter {
     }
 
     fn count_step(&mut self) -> Result<(), CompileError> {
-        self.steps += 1;
+        self.steps = self.steps.saturating_add(1);
         if self.steps > MAX_EXECUTION_STEPS {
             Err(CompileError::runtime(format!(
                 "execution limit exceeded ({MAX_EXECUTION_STEPS} instructions)"
