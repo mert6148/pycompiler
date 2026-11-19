@@ -51,11 +51,13 @@ compiler or file errors to standard error with a nonzero exit code.
 
 Statements end with a semicolon. Variables are declared with `let`; existing
 variables can be reassigned. `print` writes an integer to the output panel.
-The compiler supports integer arithmetic (`+`, `-`, `*`, `/`), comparisons
+The compiler supports integer arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons
 (`==`, `!=`, `<`, `<=`, `>`, `>=`), parentheses, unary minus, and `//` line
-comments. Comparison results are `1` (true) or `0` (false); any nonzero value
-is true in an `if` or `while` condition. Blocks use braces, and variables
-declared inside a block are local to that block.
+comments. Logical `&&` and `||` operators short-circuit, unary `!` negates
+truthiness, and `break` / `continue` control loops. Comparison results are
+`1` (true) or `0` (false); any nonzero value is true in an `if` or `while`
+condition. Blocks use braces, and variables declared inside a block are local
+to that block.
 
 ```text
 let total = 0;
