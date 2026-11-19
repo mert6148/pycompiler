@@ -76,6 +76,9 @@
                 <button class="panel-tab" type="button" role="tab" aria-selected="false" data-panel="problems">
                   SORUNLAR <span id="problem-count" class="problem-count">0</span>
                 </button>
+                <button class="panel-tab" type="button" role="tab" aria-selected="false" data-panel="versions">
+                  SÜRÜMLER <span id="version-count" class="problem-count">0</span>
+                </button>
               </div>
               <div class="panel-actions">
                 <span id="panel-status" class="panel-status">Çalıştırma bekleniyor</span>
@@ -101,6 +104,14 @@
                   <div><strong>Her şey yolunda</strong><span>Henüz derleme hatası bulunmuyor.</span></div>
                 </div>
                 <div id="problem-list" class="problem-list"></div>
+              </div>
+
+              <div id="versions-panel" class="panel-view versions-view" hidden>
+                <div id="versions-empty" class="empty-state">
+                  <span class="empty-icon">◷</span>
+                  <div><strong>Henüz sürüm yok</strong><span>Kod kaydedildiğinde SQLite geçmişine eklenir.</span></div>
+                </div>
+                <div id="versions-list" class="versions-list"></div>
               </div>
             </div>
           </section>

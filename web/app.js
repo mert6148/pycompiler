@@ -31,6 +31,9 @@ const dirtyIndicator = document.querySelector("#dirty-indicator");
 const problemCount = document.querySelector("#problem-count");
 const problemList = document.querySelector("#problem-list");
 const problemsEmpty = document.querySelector("#problems-empty");
+const versionCount = document.querySelector("#version-count");
+const versionsList = document.querySelector("#versions-list");
+const versionsEmpty = document.querySelector("#versions-empty");
 const cursorPositions = [
   document.querySelector("#cursor-position"),
   document.querySelector("#status-cursor"),
@@ -38,6 +41,7 @@ const cursorPositions = [
 
 const tokenPattern = /\/\/[^\n]*|\b(?:let|print|if|else|while)\b|\b\d+\b|(?:==|!=|<=|>=|[+\-*/<>])|[{}();=]/g;
 let diagnosticLine = null;
+let saveTimer = null;
 
 try {
   editor.value = localStorage.getItem("rust-ide-source") ?? sample;
@@ -116,6 +120,36 @@ function saveSource() {
     saveStatus.textContent = `Kaydetme hatası: ${error.message}`;
     statusMessage.textContent = "Yerel kayıt başarısız";
   }
+  queueDatabaseSave();
+}
+
+function queueDatabaseSave() {
+  clearTimeout(saveTimer);
+  saveStatus.textContent = "SQLite yedeği hazırlanıyor...";
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveVersionToDatabase();
+  }, 500);
+}
+
+async function saveVersionToDatabase(source = editor.value) {
+  try {
+    const response = await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      body: source,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    saveStatus.textContent = "SQLite veritabanına kaydedildi";
+    saveIndicator.classList.add("visible");
+    dirtyIndicator.classList.remove("visible");
+    await loadVersions();
+    return true;
+  } catch (error) {
+    saveStatus.textContent = `Veritabanı yedeği başarısız: ${error.message}`;
+    statusMessage.textContent = "Kod yalnızca tarayıcıya kaydedildi";
+    return false;
+  }
 }
 
 function setActivePanel(name) {
@@ -126,6 +160,64 @@ function setActivePanel(name) {
   });
   document.querySelector("#output-panel").hidden = name !== "output";
   document.querySelector("#problems-panel").hidden = name !== "problems";
+  document.querySelector("#versions-panel").hidden = name !== "versions";
+}
+
+async function loadVersions() {
+  try {
+    const response = await fetch("/api/versions");
+    if (!response.ok) throw new Error(await response.text());
+    const versions = await response.json();
+    versionCount.textContent = String(versions.length);
+    versionsEmpty.hidden = versions.length > 0;
+    versionsList.replaceChildren();
+
+    for (const version of versions) {
+      const row = document.createElement("article");
+      row.className = "version-row";
+      const details = document.createElement("div");
+      details.className = "version-details";
+      const title = document.createElement("strong");
+      title.textContent = `Sürüm #${version.id}`;
+      const date = document.createElement("span");
+      date.textContent = new Date(version.createdAt).toLocaleString("tr-TR");
+      details.append(title, date);
+
+      const restoreButton = document.createElement("button");
+      restoreButton.className = "restore-button";
+      restoreButton.type = "button";
+      restoreButton.textContent = "Geri yükle";
+      restoreButton.addEventListener("click", () => restoreVersion(version.id));
+      row.append(details, restoreButton);
+      versionsList.append(row);
+    }
+  } catch (error) {
+    versionsEmpty.hidden = false;
+    versionsEmpty.querySelector("strong").textContent = "Sürüm geçmişi açılamadı";
+    versionsEmpty.querySelector("span:not(.empty-icon)").textContent = error.message;
+  }
+}
+
+async function restoreVersion(versionId) {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!(await saveVersionToDatabase())) return;
+
+  try {
+    const response = await fetch("/api/restore", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      body: String(versionId),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    editor.value = await response.text();
+    editor.dispatchEvent(new Event("input"));
+    setActivePanel("output");
+    panelStatus.textContent = `Sürüm #${versionId} geri yüklendi`;
+    statusMessage.textContent = "Önceki kod sürümü yüklendi";
+  } catch (error) {
+    saveStatus.textContent = `Sürüm geri yüklenemedi: ${error.message}`;
+  }
 }
 
 function resetProblems() {
@@ -191,8 +283,11 @@ function showResult(text, isError, elapsedMs) {
 }
 
 async function runProgram() {
+  const source = editor.value;
   runButton.disabled = true;
-  panelStatus.textContent = "Derleniyor...";
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  panelStatus.textContent = "Kod yedekleniyor...";
   statusMessage.textContent = "Program çalışıyor";
   outputEmpty.hidden = true;
   outputResult.hidden = false;
@@ -201,10 +296,12 @@ async function runProgram() {
 
   const startedAt = performance.now();
   try {
+    await saveVersionToDatabase(source);
+    panelStatus.textContent = "Derleniyor...";
     const response = await fetch("/api/run", {
       method: "POST",
       headers: { "Content-Type": "text/plain; charset=utf-8" },
-      body: editor.value,
+      body: source,
     });
     const result = await response.text();
     const isError = !response.ok;
@@ -276,3 +373,5 @@ runButton.addEventListener("click", runProgram);
 updateHighlight();
 updateGutter();
 updateCursor();
+loadVersions();
+queueDatabaseSave();

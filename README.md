@@ -31,7 +31,9 @@ Open [http://127.0.0.1:3030](http://127.0.0.1:3030). The server binds to
 localhost only. Press **Run** or **Ctrl+Enter** to compile and execute the
 editor contents. The redesigned editor highlights Rusty syntax, saves source
 in the browser's local storage, and shows clickable diagnostics with line
-numbers in the Problems panel.
+numbers in the Problems panel. Each editor save is also versioned in the local
+SQLite database; the **Sürümler** panel can restore earlier versions. Changed
+Rust files under `src/` are snapshotted when the server starts.
 
 ## Rusty language
 

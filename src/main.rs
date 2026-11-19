@@ -1,19 +1,27 @@
 use pycompiler::compiler::compile_and_run;
+use pycompiler::database::{Database, VersionSource};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::Path;
 use std::time::Duration;
 
 const MAX_REQUEST_SIZE: usize = 1024 * 1024;
 const ADDRESS: &str = "127.0.0.1:3030";
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let project_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let database_path = project_root.join("data").join("code-history.sqlite3");
+    let database = Database::open(&database_path)?;
+    let saved_sources = database.snapshot_rust_sources(&project_root.join("src"), project_root)?;
+    println!("Stored {saved_sources} changed Rust source file(s) in code history.");
+
     let listener = TcpListener::bind(ADDRESS)?;
     println!("Rust IDE is ready at http://{ADDRESS}");
 
     for connection in listener.incoming() {
         match connection {
             Ok(stream) => {
-                if let Err(error) = handle_connection(stream) {
+                if let Err(error) = handle_connection(stream, &database) {
                     eprintln!("Request failed: {error}");
                 }
             }
@@ -24,11 +32,11 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
+fn handle_connection(mut stream: TcpStream, database: &Database) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
 
     let response = match read_request(&mut stream) {
-        Ok((method, path, body)) => route(&method, &path, &body),
+        Ok((method, path, body)) => route(&method, &path, &body, database),
         Err((status, message)) => Response::text(status, message),
     };
 
@@ -104,13 +112,56 @@ fn read_request(stream: &mut TcpStream) -> Result<(String, String, Vec<u8>), (u1
     Ok((method, path, request[body_start..expected_length].to_vec()))
 }
 
-fn route(method: &str, path: &str, body: &[u8]) -> Response {
+fn route(method: &str, path: &str, body: &[u8], database: &Database) -> Response {
     if method == "GET" {
         return match path {
             "/" => Response::html(include_bytes!("../web/index.html")),
             "/style.css" => Response::css(include_bytes!("../web/style.css")),
             "/app.js" => Response::javascript(include_bytes!("../web/app.js")),
+            "/api/versions" => match database.list_versions("main.rusty", 50) {
+                Ok(versions) => match serde_json::to_vec(&versions) {
+                    Ok(body) => Response::json(body),
+                    Err(error) => database_failure("serialize code history", error),
+                },
+                Err(error) => database_failure("read code history", error),
+            },
             _ => Response::text(404, "Not found."),
+        };
+    }
+
+    if method == "POST" && path == "/api/save" {
+        return match std::str::from_utf8(body) {
+            Ok(source) => {
+                match database.save_version("main.rusty", source, VersionSource::Editor) {
+                    Ok(Some(version_id)) => {
+                        Response::text(200, format!("Saved version {version_id}."))
+                    }
+                    Ok(None) => Response::text(200, "Code is already up to date."),
+                    Err(error) => database_failure("save editor source", error),
+                }
+            }
+            Err(_) => Response::text(400, "Source code must be valid UTF-8."),
+        };
+    }
+
+    if method == "POST" && path == "/api/restore" {
+        let version_id = match std::str::from_utf8(body)
+            .ok()
+            .and_then(|value| value.trim().parse::<i64>().ok())
+        {
+            Some(id) if id > 0 => id,
+            _ => return Response::text(400, "Version ID must be a positive integer."),
+        };
+
+        return match database.load_version(version_id) {
+            Ok(Some(version))
+                if version.summary.file_path == "main.rusty"
+                    && version.summary.source == VersionSource::Editor =>
+            {
+                Response::text(200, version.content)
+            }
+            Ok(_) => Response::text(404, "Editor version not found."),
+            Err(error) => database_failure("restore editor source", error),
         };
     }
 
@@ -125,6 +176,14 @@ fn route(method: &str, path: &str, body: &[u8]) -> Response {
     }
 
     Response::text(404, "Not found.")
+}
+
+fn database_failure(context: &str, error: impl std::fmt::Display) -> Response {
+    eprintln!("Could not {context}: {error}");
+    Response::text(
+        500,
+        format!("Database error while attempting to {context}."),
+    )
 }
 
 struct Response {
@@ -152,6 +211,14 @@ impl Response {
 
     fn javascript(body: &'static [u8]) -> Self {
         Self::asset("text/javascript; charset=utf-8", body)
+    }
+
+    fn json(body: Vec<u8>) -> Self {
+        Self {
+            status: 200,
+            content_type: "application/json; charset=utf-8",
+            body,
+        }
     }
 
     fn asset(content_type: &'static str, body: &'static [u8]) -> Self {

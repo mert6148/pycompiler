@@ -38,24 +38,47 @@ overview is also available alongside the compiler API.
 | `src/lib.rs` | Exports the compiler module and includes this guide as the crate-level Rust documentation. |
 | `src/main.rs` | Starts the localhost HTTP server, serves the IDE assets, and forwards `/api/run` requests to the compiler library. |
 | `src/compiler.rs` | Implements the Rusty lexer, parser, bytecode instructions, virtual machine, and compiler tests. |
+| `src/database.rs` | Creates SQLite code history, stores editor versions, and snapshots changed Rust source files. |
 | `web/index.html` | IDE structure: file explorer, editor, output panel, and status bar. |
 | `web/style.css` | VS Code-inspired layout and colors. |
-| `web/app.js` | Editor behavior, local saving, and compiler API requests. |
+| `web/app.js` | Editor behavior, local saving, SQLite autosave, version history, and compiler API requests. |
 | `run.bat` | Windows launcher that checks for Cargo and runs the app. |
 | `Cargo.toml` | Rust package configuration. |
 
 ## Request-to-output flow
 
-1. The browser sends the editor contents as UTF-8 text to `POST /api/run`.
-2. `main.rs` validates the request body and calls
+1. On startup, `main.rs` snapshots changed `.rs` files under `src/` into
+   `data/code-history.sqlite3`.
+2. The browser keeps an immediate local copy and sends debounced saves to
+   `POST /api/save`. SQLite stores each changed version of `main.rusty`;
+   identical consecutive contents are deduplicated.
+3. The **Sürümler** panel loads the latest versions from `GET /api/versions`.
+   **Geri yükle** retrieves an editor version through `POST /api/restore`;
+   restoring a version is itself saved as a new version.
+4. The browser sends the editor contents as UTF-8 text to `POST /api/run`.
+5. `main.rs` validates the request body and calls
    `compiler::compile_and_run`.
-3. The lexer converts characters to tokens and records line/column positions.
-4. The parser validates statements and variable declarations, then emits
+6. The lexer converts characters to tokens and records line/column positions.
+7. The parser validates statements and variable declarations, then emits
    stack-machine bytecode. Conditional and loop instructions use patched jump
    targets.
-5. The virtual machine executes the bytecode and collects `print` output.
+8. The virtual machine executes the bytecode and collects `print` output.
    Arithmetic is checked, and execution stops after one million instructions.
-6. The server returns the output as plain text, or a diagnostic with HTTP 400.
+9. The server returns the output as plain text, or a diagnostic with HTTP 400.
+
+The SQLite database is local and is excluded from Git by `.gitignore`. Versions
+are stored as plain text in the database; this provides history and recovery,
+not encryption. Keep a separate backup of the database if protection against
+disk loss is required.
+
+Useful local endpoints:
+
+| Method and path | Purpose |
+| --- | --- |
+| `POST /api/save` | Save an editor source version. |
+| `GET /api/versions` | List recent `main.rusty` versions. |
+| `POST /api/restore` | Load an editor version by its numeric ID. |
+| `POST /api/run` | Compile and run Rusty source. |
 
 The public compiler entry point and `CompileError` are documented in the
 generated API reference under the `compiler` module. Their implementation is

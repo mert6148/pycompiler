@@ -182,6 +182,13 @@ kbd { border: 1px solid #ffffff3d; border-radius: 4px; padding: 2px 5px; backgro
 .problem-text { display: flex; flex-direction: column; gap: 4px; }
 .problem-message { color: #ff9a9f; font: 11px/1.5 Consolas, "Courier New", monospace; }
 .problem-location { color: #728198; font-size: 10px; }
+.versions-list { display: flex; flex-direction: column; padding: 5px 18px; }
+.version-row { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px; border-bottom: 1px solid #1d2733; }
+.version-details { display: flex; flex-direction: column; gap: 5px; }
+.version-details strong { color: #d7e0eb; font-size: 11px; font-weight: 550; }
+.version-details span { color: #718198; font-size: 10px; }
+.restore-button { padding: 6px 9px; border: 1px solid #9c7bff50; border-radius: 5px; background: #9c7bff14; color: #c9b8ff; cursor: pointer; font-size: 10px; }
+.restore-button:hover { background: #9c7bff28; }
 
 .statusbar { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: #171d2d; color: #aab4c3; font-size: 10px; }
 .status-left, .status-right { display: flex; align-items: center; gap: 15px; }
