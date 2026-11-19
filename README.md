@@ -29,7 +29,9 @@ Rust test suite, `npm run build` makes a release build, and
 
 Open [http://127.0.0.1:3030](http://127.0.0.1:3030). The server binds to
 localhost only. Press **Run** or **Ctrl+Enter** to compile and execute the
-editor contents. Source is saved in the browser's local storage.
+editor contents. The redesigned editor highlights Rusty syntax, saves source
+in the browser's local storage, and shows clickable diagnostics with line
+numbers in the Problems panel.
 
 ## Rusty language
 
