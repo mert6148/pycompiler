@@ -1,0 +1,19 @@
+{
+    "name": "pycompiler",
+    "version": "1.0.0",
+    "description": "A simple Python compiler written in Rust ",
+    "main": "src/main.rs",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "serde": "^1.0.130",
+        "serde_json": "^1.0.68"
+    },
+    "devDependencies": {
+        "wasm-pack": "^0.10.1"
+    }
+}
