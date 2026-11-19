@@ -37,6 +37,25 @@ numbers in the Problems panel. Each editor save is also versioned in the local
 SQLite database; the **Sürümler** panel can restore earlier versions. Changed
 Rust files under `src/` are snapshotted when the server starts.
 
+## Docker
+
+With Docker Engine and the Compose plugin installed, start the IDE from the
+project root:
+
+```powershell
+docker compose up --build
+```
+
+Open [http://localhost:3030](http://localhost:3030). The multi-stage image runs
+as a non-root user. Compose stores SQLite history in the persistent
+`pycompiler-data` volume. Stop the app with `Ctrl+C` or `docker compose down`;
+avoid `docker compose down --volumes` if you want to keep code history.
+
+For a manual image build, use `docker build -t pycompiler .`. Configure
+`RUSTY_BIND_ADDRESS` and `RUSTY_DATA_DIR` when running the image so the server
+is reachable and its database is mounted to persistent storage. The normal
+local defaults remain `127.0.0.1:3030` and the project `data` directory.
+
 The compiler can also be used directly from a terminal:
 
 ```powershell

@@ -1,0 +1,25 @@
+services:
+  pycompiler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pycompiler:local
+    ports:
+      - "3030:3030"
+    environment:
+      RUSTY_BIND_ADDRESS: 0.0.0.0:3030
+      RUSTY_DATA_DIR: /app/data
+    volumes:
+      - pycompiler-data:/app/data
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  pycompiler-data:
