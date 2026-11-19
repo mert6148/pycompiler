@@ -1,58 +1,100 @@
-//! Lexer, parser, bytecode compiler, and virtual machine for the Rusty language.
-//!
-//! [`compile_and_run`] is the module's entry point. Source is tokenized with
-//! line and column locations, parsed into stack-machine instructions, and then
-//! executed with checked integer arithmetic.
+//! Rusty language lexer, parser, AST interpreter, and public compiler API.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 
 const MAX_EXECUTION_STEPS: usize = 1_000_000;
+const MAX_SOURCE_LENGTH: usize = 1024 * 1024;
+const MAX_BLOCK_DEPTH: usize = 128;
 
-/// An error found while compiling or executing a Rusty program.
-///
-/// Syntax and name errors include a one-based `line:column` location.
-#[derive(Debug, Clone, PartialEq)]
+/// A source or runtime error produced by the Rusty compiler.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileError {
+    line: Option<usize>,
+    column: Option<usize>,
     message: String,
 }
 
 impl CompileError {
-    fn new(line: usize, column: usize, message: impl fmt::Display) -> Self {
+    fn source(line: usize, column: usize, message: impl Into<String>) -> Self {
         Self {
-            message: format!("{line}:{column}: {message}"),
+            line: Some(line),
+            column: Some(column),
+            message: message.into(),
         }
+    }
+
+    fn runtime(message: impl Into<String>) -> Self {
+        Self {
+            line: None,
+            column: None,
+            message: format!("runtime error: {}", message.into()),
+        }
+    }
+
+    /// One-based source line, if this is a source error.
+    pub fn line(&self) -> Option<usize> {
+        self.line
+    }
+
+    /// One-based source column, if this is a source error.
+    pub fn column(&self) -> Option<usize> {
+        self.column
+    }
+
+    /// Human-readable compiler or runtime diagnostic.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub fn is_runtime(&self) -> bool {
+        self.line.is_none()
     }
 }
 
 impl fmt::Display for CompileError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.message)
+        match (self.line, self.column) {
+            (Some(line), Some(column)) => write!(formatter, "{line}:{column}: {}", self.message),
+            _ => write!(formatter, "{}", self.message),
+        }
     }
 }
 
 impl std::error::Error for CompileError {}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Span {
+    line: usize,
+    column: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum TokenKind {
     Let,
     Print,
     If,
     Else,
     While,
+    Break,
+    Continue,
     Identifier(String),
-    Number(i64),
+    Integer(i64),
     Plus,
     Minus,
     Star,
     Slash,
+    Percent,
     Equal,
     EqualEqual,
+    Bang,
     BangEqual,
     Less,
     LessEqual,
     Greater,
     GreaterEqual,
+    AmpAmp,
+    PipePipe,
     Semicolon,
     LeftParen,
     RightParen,
@@ -61,21 +103,30 @@ enum TokenKind {
     Eof,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Token {
     kind: TokenKind,
-    line: usize,
-    column: usize,
+    span: Span,
 }
 
-/// Converts source text into tokens while retaining source locations.
 fn lex(source: &str) -> Result<Vec<Token>, CompileError> {
-    let characters: Vec<char> = source.chars().collect();
-    let (mut index, mut line, mut column) = (0, 1, 1);
+    if source.len() > MAX_SOURCE_LENGTH {
+        return Err(CompileError::source(
+            1,
+            1,
+            format!("source is too large (maximum {MAX_SOURCE_LENGTH} bytes)"),
+        ));
+    }
+
+    let chars: Vec<char> = source.chars().collect();
+    let mut index = 0;
+    let mut line = 1;
+    let mut column = 1;
     let mut tokens = Vec::new();
 
-    while index < characters.len() {
-        let character = characters[index];
+    while index < chars.len() {
+        let character = chars[index];
+
         if character.is_whitespace() {
             if character == '\n' {
                 line += 1;
@@ -87,129 +138,189 @@ fn lex(source: &str) -> Result<Vec<Token>, CompileError> {
             continue;
         }
 
-        if character == '/' && characters.get(index + 1) == Some(&'/') {
-            while index < characters.len() && characters[index] != '\n' {
+        if character == '/' && chars.get(index + 1) == Some(&'/') {
+            while index < chars.len() && chars[index] != '\n' {
                 index += 1;
                 column += 1;
             }
             continue;
         }
 
-        let (token_line, token_column) = (line, column);
+        let span = Span { line, column };
         let kind = if character.is_ascii_digit() {
             let start = index;
-            while characters.get(index).is_some_and(|c| c.is_ascii_digit()) {
+            while chars.get(index).is_some_and(|next| next.is_ascii_digit()) {
                 index += 1;
                 column += 1;
             }
-            let value: String = characters[start..index].iter().collect();
-            let number = value.parse::<i64>().map_err(|_| {
-                CompileError::new(token_line, token_column, "integer literal is too large")
+            let literal: String = chars[start..index].iter().collect();
+            let value = literal.parse::<i64>().map_err(|_| {
+                CompileError::source(span.line, span.column, "integer literal is too large")
             })?;
-            tokens.push(Token {
-                kind: TokenKind::Number(number),
-                line: token_line,
-                column: token_column,
-            });
-            continue;
+            TokenKind::Integer(value)
         } else if character.is_ascii_alphabetic() || character == '_' {
             let start = index;
-            while characters
+            while chars
                 .get(index)
-                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .is_some_and(|next| next.is_ascii_alphanumeric() || *next == '_')
             {
                 index += 1;
                 column += 1;
             }
-            let word: String = characters[start..index].iter().collect();
+            let word: String = chars[start..index].iter().collect();
             match word.as_str() {
                 "let" => TokenKind::Let,
                 "print" => TokenKind::Print,
                 "if" => TokenKind::If,
                 "else" => TokenKind::Else,
                 "while" => TokenKind::While,
+                "break" => TokenKind::Break,
+                "continue" => TokenKind::Continue,
                 _ => TokenKind::Identifier(word),
             }
         } else {
-            let two_character_token = match (character, characters.get(index + 1)) {
-                ('=', Some('=')) => Some(TokenKind::EqualEqual),
-                ('!', Some('=')) => Some(TokenKind::BangEqual),
-                ('<', Some('=')) => Some(TokenKind::LessEqual),
-                ('>', Some('=')) => Some(TokenKind::GreaterEqual),
-                _ => None,
-            };
-            if let Some(kind) = two_character_token {
-                index += 2;
-                column += 2;
-                kind
-            } else {
-                index += 1;
-                column += 1;
-                match character {
-                    '+' => TokenKind::Plus,
-                    '-' => TokenKind::Minus,
-                    '*' => TokenKind::Star,
-                    '/' => TokenKind::Slash,
-                    '=' => TokenKind::Equal,
-                    '<' => TokenKind::Less,
-                    '>' => TokenKind::Greater,
-                    ';' => TokenKind::Semicolon,
-                    '(' => TokenKind::LeftParen,
-                    ')' => TokenKind::RightParen,
-                    '{' => TokenKind::LeftBrace,
-                    '}' => TokenKind::RightBrace,
-                    _ => {
-                        return Err(CompileError::new(
-                            token_line,
-                            token_column,
-                            format!("unexpected character '{character}'"),
-                        ));
+            let pair = chars.get(index + 1).copied();
+            let kind = match (character, pair) {
+                ('=', Some('=')) => {
+                    index += 2;
+                    column += 2;
+                    TokenKind::EqualEqual
+                }
+                ('!', Some('=')) => {
+                    index += 2;
+                    column += 2;
+                    TokenKind::BangEqual
+                }
+                ('<', Some('=')) => {
+                    index += 2;
+                    column += 2;
+                    TokenKind::LessEqual
+                }
+                ('>', Some('=')) => {
+                    index += 2;
+                    column += 2;
+                    TokenKind::GreaterEqual
+                }
+                ('&', Some('&')) => {
+                    index += 2;
+                    column += 2;
+                    TokenKind::AmpAmp
+                }
+                ('|', Some('|')) => {
+                    index += 2;
+                    column += 2;
+                    TokenKind::PipePipe
+                }
+                _ => {
+                    index += 1;
+                    column += 1;
+                    match character {
+                        '+' => TokenKind::Plus,
+                        '-' => TokenKind::Minus,
+                        '*' => TokenKind::Star,
+                        '/' => TokenKind::Slash,
+                        '%' => TokenKind::Percent,
+                        '=' => TokenKind::Equal,
+                        '!' => TokenKind::Bang,
+                        '<' => TokenKind::Less,
+                        '>' => TokenKind::Greater,
+                        ';' => TokenKind::Semicolon,
+                        '(' => TokenKind::LeftParen,
+                        ')' => TokenKind::RightParen,
+                        '{' => TokenKind::LeftBrace,
+                        '}' => TokenKind::RightBrace,
+                        _ => {
+                            return Err(CompileError::source(
+                                span.line,
+                                span.column,
+                                format!("unexpected character '{character}'"),
+                            ));
+                        }
                     }
                 }
-            }
+            };
+            kind
         };
-        tokens.push(Token {
-            kind,
-            line: token_line,
-            column: token_column,
-        });
+
+        tokens.push(Token { kind, span });
     }
 
     tokens.push(Token {
         kind: TokenKind::Eof,
-        line,
-        column,
+        span: Span { line, column },
     });
     Ok(tokens)
 }
 
-#[derive(Debug, Clone)]
-enum Instruction {
-    Push(i64),
-    Load(String),
-    Store(String),
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Expression {
+    kind: ExpressionKind,
+    span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExpressionKind {
+    Integer(i64),
+    Variable(String),
+    Unary(UnaryOperator, Box<Expression>),
+    Binary(Box<Expression>, BinaryOperator, Box<Expression>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnaryOperator {
+    Minus,
+    Not,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
     Divide,
+    Remainder,
     Equal,
     NotEqual,
     Less,
     LessEqual,
     Greater,
     GreaterEqual,
-    Negate,
-    Print,
-    Jump(usize),
-    JumpIfFalse(usize),
+    And,
+    Or,
 }
 
-/// Parses statements and emits bytecode while validating variable scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Statement {
+    Let {
+        name: String,
+        value: Expression,
+        span: Span,
+    },
+    Assign {
+        name: String,
+        value: Expression,
+        span: Span,
+    },
+    Print(Expression),
+    Block(Vec<Statement>, Span),
+    If {
+        condition: Expression,
+        then_branch: Box<Statement>,
+        else_branch: Option<Box<Statement>>,
+    },
+    While {
+        condition: Expression,
+        body: Box<Statement>,
+    },
+    Break(Span),
+    Continue(Span),
+}
+
 struct Parser {
     tokens: Vec<Token>,
     current: usize,
-    declared: HashSet<String>,
-    code: Vec<Instruction>,
+    loop_depth: usize,
+    scopes: Vec<HashMap<String, Span>>,
 }
 
 impl Parser {
@@ -217,194 +328,361 @@ impl Parser {
         Self {
             tokens,
             current: 0,
-            declared: HashSet::new(),
-            code: Vec::new(),
+            loop_depth: 0,
+            scopes: vec![HashMap::new()],
         }
     }
 
-    fn compile(mut self) -> Result<Vec<Instruction>, CompileError> {
-        while !self.check(&TokenKind::Eof) {
-            self.statement()?;
+    fn parse(mut self) -> Result<Vec<Statement>, CompileError> {
+        let mut statements = Vec::new();
+        while !self.check(TokenKind::Eof) {
+            statements.push(self.statement(MAX_BLOCK_DEPTH)?);
         }
-        Ok(self.code)
+        Ok(statements)
     }
 
-    fn statement(&mut self) -> Result<(), CompileError> {
-        if self.matches(&TokenKind::If) {
-            self.expression(0)?;
-            let false_jump = self.emit_jump_if_false();
-            self.block()?;
+    fn statement(&mut self, depth: usize) -> Result<Statement, CompileError> {
+        if depth == 0 {
+            let token = self.peek();
+            return Err(CompileError::source(
+                token.span.line,
+                token.span.column,
+                "maximum block nesting depth exceeded",
+            ));
+        }
 
-            if self.matches(&TokenKind::Else) {
-                let end_jump = self.emit_jump();
-                self.patch_jump(false_jump);
-                self.block()?;
-                self.patch_jump(end_jump);
+        if self.match_kind(TokenKind::Let) {
+            let name_token = self.advance().clone();
+            let name = match name_token.kind {
+                TokenKind::Identifier(name) => name,
+                _ => {
+                    return Err(CompileError::source(
+                        name_token.span.line,
+                        name_token.span.column,
+                        "expected a variable name after 'let'",
+                    ));
+                }
+            };
+            if self
+                .scopes
+                .last()
+                .is_some_and(|scope| scope.contains_key(&name))
+            {
+                return Err(CompileError::source(
+                    name_token.span.line,
+                    name_token.span.column,
+                    format!("'{name}' is already declared in this scope"),
+                ));
+            }
+            self.consume(TokenKind::Equal, "expected '=' after variable name")?;
+            let value = self.expression()?;
+            let span = name_token.span;
+            self.consume(TokenKind::Semicolon, "expected ';' after declaration")?;
+            self.scopes
+                .last_mut()
+                .expect("parser always has a global scope")
+                .insert(name.clone(), span);
+            return Ok(Statement::Let { name, value, span });
+        }
+
+        if self.match_kind(TokenKind::Print) {
+            let value = self.expression()?;
+            self.consume(TokenKind::Semicolon, "expected ';' after print expression")?;
+            return Ok(Statement::Print(value));
+        }
+
+        if self.match_kind(TokenKind::If) {
+            let condition = self.expression()?;
+            let then_branch = Box::new(self.statement(depth - 1)?);
+            let else_branch = if self.match_kind(TokenKind::Else) {
+                Some(Box::new(self.statement(depth - 1)?))
             } else {
-                self.patch_jump(false_jump);
+                None
+            };
+            return Ok(Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            });
+        }
+
+        if self.match_kind(TokenKind::While) {
+            let condition = self.expression()?;
+            self.loop_depth += 1;
+            let body = self.statement(depth - 1);
+            self.loop_depth -= 1;
+            let body = Box::new(body?);
+            return Ok(Statement::While { condition, body });
+        }
+
+        if self.match_kind(TokenKind::Break) {
+            let token = self.previous().clone();
+            if self.loop_depth == 0 {
+                return Err(CompileError::source(
+                    token.span.line,
+                    token.span.column,
+                    "'break' is only allowed inside a loop",
+                ));
             }
-            return Ok(());
+            self.consume(TokenKind::Semicolon, "expected ';' after 'break'")?;
+            return Ok(Statement::Break(token.span));
         }
 
-        if self.matches(&TokenKind::While) {
-            let loop_start = self.code.len();
-            self.expression(0)?;
-            let exit_jump = self.emit_jump_if_false();
-            self.block()?;
-            self.code.push(Instruction::Jump(loop_start));
-            self.patch_jump(exit_jump);
-            return Ok(());
-        }
-
-        if self.matches(&TokenKind::Let) {
-            let name = self.take_identifier("expected a variable name after 'let'")?;
-            if self.declared.contains(&name) {
-                return Err(self.error(format!("'{name}' is already declared")));
+        if self.match_kind(TokenKind::Continue) {
+            let token = self.previous().clone();
+            if self.loop_depth == 0 {
+                return Err(CompileError::source(
+                    token.span.line,
+                    token.span.column,
+                    "'continue' is only allowed inside a loop",
+                ));
             }
-            self.expect(&TokenKind::Equal, "expected '=' after variable name")?;
-            self.expression(0)?;
-            self.expect(&TokenKind::Semicolon, "expected ';' after declaration")?;
-            self.declared.insert(name.clone());
-            self.code.push(Instruction::Store(name));
-            return Ok(());
+            self.consume(TokenKind::Semicolon, "expected ';' after 'continue'")?;
+            return Ok(Statement::Continue(token.span));
         }
 
-        if self.matches(&TokenKind::Print) {
-            self.expression(0)?;
-            self.expect(&TokenKind::Semicolon, "expected ';' after print expression")?;
-            self.code.push(Instruction::Print);
-            return Ok(());
+        if self.check(TokenKind::LeftBrace) {
+            return self.block(depth);
         }
 
         if let TokenKind::Identifier(name) = self.peek().kind.clone() {
             let token = self.advance().clone();
-            if !self.declared.contains(&name) {
-                return Err(CompileError::new(
-                    token.line,
-                    token.column,
+            if !self
+                .scopes
+                .iter()
+                .rev()
+                .any(|scope| scope.contains_key(&name))
+            {
+                return Err(CompileError::source(
+                    token.span.line,
+                    token.span.column,
                     format!("undefined variable '{name}'"),
                 ));
             }
-            self.expect(&TokenKind::Equal, "expected '=' after variable name")?;
-            self.expression(0)?;
-            self.expect(&TokenKind::Semicolon, "expected ';' after assignment")?;
-            self.code.push(Instruction::Store(name));
-            return Ok(());
+            self.consume(TokenKind::Equal, "expected '=' after variable name")?;
+            let value = self.expression()?;
+            self.consume(TokenKind::Semicolon, "expected ';' after assignment")?;
+            return Ok(Statement::Assign {
+                name,
+                value,
+                span: token.span,
+            });
         }
 
-        Err(self.error("expected a declaration, assignment, print, if, or while statement"))
+        let token = self.peek();
+        Err(CompileError::source(
+            token.span.line,
+            token.span.column,
+            "expected a declaration, assignment, print, block, if, or while statement",
+        ))
     }
 
-    // Precedence climbing keeps arithmetic and comparisons in one parser.
-    fn expression(&mut self, minimum_precedence: u8) -> Result<(), CompileError> {
-        if self.matches(&TokenKind::Minus) {
-            self.expression(4)?;
-            self.code.push(Instruction::Negate);
-        } else if self.matches(&TokenKind::LeftParen) {
-            self.expression(0)?;
-            self.expect(&TokenKind::RightParen, "expected ')' after expression")?;
-        } else {
-            let token = self.advance().clone();
-            match token.kind {
-                TokenKind::Number(value) => self.code.push(Instruction::Push(value)),
-                TokenKind::Identifier(name) => {
-                    if !self.declared.contains(&name) {
-                        return Err(CompileError::new(
-                            token.line,
-                            token.column,
-                            format!("undefined variable '{name}'"),
-                        ));
-                    }
-                    self.code.push(Instruction::Load(name));
-                }
-                _ => {
-                    return Err(CompileError::new(
-                        token.line,
-                        token.column,
-                        "expected a number, variable, or parenthesized expression",
-                    ));
-                }
+    fn block(&mut self, depth: usize) -> Result<Statement, CompileError> {
+        let opening = self.advance().clone();
+        self.scopes.push(HashMap::new());
+        let mut statements = Vec::new();
+        let result = loop {
+            if self.check(TokenKind::Eof) {
+                break Err(CompileError::source(
+                    opening.span.line,
+                    opening.span.column,
+                    "expected '}' after block",
+                ));
             }
-        }
-
-        loop {
-            let (precedence, instruction) = match self.peek().kind {
-                TokenKind::EqualEqual => (1, Instruction::Equal),
-                TokenKind::BangEqual => (1, Instruction::NotEqual),
-                TokenKind::Less => (1, Instruction::Less),
-                TokenKind::LessEqual => (1, Instruction::LessEqual),
-                TokenKind::Greater => (1, Instruction::Greater),
-                TokenKind::GreaterEqual => (1, Instruction::GreaterEqual),
-                TokenKind::Plus => (2, Instruction::Add),
-                TokenKind::Minus => (2, Instruction::Subtract),
-                TokenKind::Star => (3, Instruction::Multiply),
-                TokenKind::Slash => (3, Instruction::Divide),
-                _ => break,
-            };
-            if precedence < minimum_precedence {
-                break;
+            if self.check(TokenKind::RightBrace) {
+                break Ok(());
             }
-            self.advance();
-            self.expression(precedence + 1)?;
-            self.code.push(instruction);
-        }
-        Ok(())
-    }
-
-    // Each block gets a temporary declaration scope; outer assignments remain valid.
-    fn block(&mut self) -> Result<(), CompileError> {
-        self.expect(&TokenKind::LeftBrace, "expected '{' before block")?;
-        let outer_variables = self.declared.clone();
-        while !self.check(&TokenKind::RightBrace) {
-            if self.check(&TokenKind::Eof) {
-                return Err(self.error("expected '}' after block"));
+            match self.statement(depth - 1) {
+                Ok(statement) => statements.push(statement),
+                Err(error) => break Err(error),
             }
-            self.statement()?;
-        }
+        };
+        self.scopes.pop();
+        result?;
         self.advance();
-        self.declared = outer_variables;
-        Ok(())
+        Ok(Statement::Block(statements, opening.span))
     }
 
-    fn emit_jump(&mut self) -> usize {
-        let instruction = self.code.len();
-        self.code.push(Instruction::Jump(usize::MAX));
-        instruction
+    fn expression(&mut self) -> Result<Expression, CompileError> {
+        self.or_expression()
     }
 
-    fn emit_jump_if_false(&mut self) -> usize {
-        let instruction = self.code.len();
-        self.code.push(Instruction::JumpIfFalse(usize::MAX));
-        instruction
+    fn or_expression(&mut self) -> Result<Expression, CompileError> {
+        let mut left = self.and_expression()?;
+        while self.match_kind(TokenKind::PipePipe) {
+            let operator = self.previous().span;
+            let right = self.and_expression()?;
+            left = Expression {
+                kind: ExpressionKind::Binary(Box::new(left), BinaryOperator::Or, Box::new(right)),
+                span: operator,
+            };
+        }
+        Ok(left)
     }
 
-    fn patch_jump(&mut self, instruction: usize) {
-        let target = self.code.len();
-        match &mut self.code[instruction] {
-            Instruction::Jump(destination) | Instruction::JumpIfFalse(destination) => {
-                *destination = target;
+    fn and_expression(&mut self) -> Result<Expression, CompileError> {
+        let mut left = self.comparison_expression()?;
+        while self.match_kind(TokenKind::AmpAmp) {
+            let operator = self.previous().span;
+            let right = self.comparison_expression()?;
+            left = Expression {
+                kind: ExpressionKind::Binary(Box::new(left), BinaryOperator::And, Box::new(right)),
+                span: operator,
+            };
+        }
+        Ok(left)
+    }
+
+    fn comparison_expression(&mut self) -> Result<Expression, CompileError> {
+        let mut left = self.additive_expression()?;
+        loop {
+            let operator = if self.match_kind(TokenKind::EqualEqual) {
+                Some(BinaryOperator::Equal)
+            } else if self.match_kind(TokenKind::BangEqual) {
+                Some(BinaryOperator::NotEqual)
+            } else if self.match_kind(TokenKind::Less) {
+                Some(BinaryOperator::Less)
+            } else if self.match_kind(TokenKind::LessEqual) {
+                Some(BinaryOperator::LessEqual)
+            } else if self.match_kind(TokenKind::Greater) {
+                Some(BinaryOperator::Greater)
+            } else if self.match_kind(TokenKind::GreaterEqual) {
+                Some(BinaryOperator::GreaterEqual)
+            } else {
+                None
+            };
+            let Some(operator) = operator else {
+                break;
+            };
+            let right = self.additive_expression()?;
+            left = Expression {
+                span: left.span,
+                kind: ExpressionKind::Binary(Box::new(left), operator, Box::new(right)),
+            };
+        }
+        Ok(left)
+    }
+
+    fn additive_expression(&mut self) -> Result<Expression, CompileError> {
+        let mut left = self.multiplicative_expression()?;
+        loop {
+            let operator = if self.match_kind(TokenKind::Plus) {
+                Some(BinaryOperator::Add)
+            } else if self.match_kind(TokenKind::Minus) {
+                Some(BinaryOperator::Subtract)
+            } else {
+                None
+            };
+            let Some(operator) = operator else {
+                break;
+            };
+            let right = self.multiplicative_expression()?;
+            left = Expression {
+                span: left.span,
+                kind: ExpressionKind::Binary(Box::new(left), operator, Box::new(right)),
+            };
+        }
+        Ok(left)
+    }
+
+    fn multiplicative_expression(&mut self) -> Result<Expression, CompileError> {
+        let mut left = self.unary_expression()?;
+        loop {
+            let operator = if self.match_kind(TokenKind::Star) {
+                Some(BinaryOperator::Multiply)
+            } else if self.match_kind(TokenKind::Slash) {
+                Some(BinaryOperator::Divide)
+            } else if self.match_kind(TokenKind::Percent) {
+                Some(BinaryOperator::Remainder)
+            } else {
+                None
+            };
+            let Some(operator) = operator else {
+                break;
+            };
+            let right = self.unary_expression()?;
+            left = Expression {
+                span: left.span,
+                kind: ExpressionKind::Binary(Box::new(left), operator, Box::new(right)),
+            };
+        }
+        Ok(left)
+    }
+
+    fn unary_expression(&mut self) -> Result<Expression, CompileError> {
+        if self.match_kind(TokenKind::Minus) {
+            let operator_span = self.previous().span;
+            let operand = self.unary_expression()?;
+            return Ok(Expression {
+                span: operator_span,
+                kind: ExpressionKind::Unary(UnaryOperator::Minus, Box::new(operand)),
+            });
+        }
+        if self.match_kind(TokenKind::Bang) {
+            let operator_span = self.previous().span;
+            let operand = self.unary_expression()?;
+            return Ok(Expression {
+                span: operator_span,
+                kind: ExpressionKind::Unary(UnaryOperator::Not, Box::new(operand)),
+            });
+        }
+        self.primary_expression()
+    }
+
+    fn primary_expression(&mut self) -> Result<Expression, CompileError> {
+        if let TokenKind::Integer(value) = self.peek().kind {
+            let token = self.advance().clone();
+            return Ok(Expression {
+                kind: ExpressionKind::Integer(value),
+                span: token.span,
+            });
+        }
+        if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+            let token = self.advance().clone();
+            if !self
+                .scopes
+                .iter()
+                .rev()
+                .any(|scope| scope.contains_key(&name))
+            {
+                return Err(CompileError::source(
+                    token.span.line,
+                    token.span.column,
+                    format!("undefined variable '{name}'"),
+                ));
             }
-            _ => unreachable!("only jump instructions can be patched"),
+            return Ok(Expression {
+                kind: ExpressionKind::Variable(name),
+                span: token.span,
+            });
         }
+        if self.match_kind(TokenKind::LeftParen) {
+            let expression = self.expression()?;
+            self.consume(TokenKind::RightParen, "expected ')' after expression")?;
+            return Ok(expression);
+        }
+
+        let token = self.peek();
+        Err(CompileError::source(
+            token.span.line,
+            token.span.column,
+            "expected a number, variable, or parenthesized expression",
+        ))
     }
 
-    fn take_identifier(&mut self, message: &str) -> Result<String, CompileError> {
-        let token = self.advance().clone();
-        match token.kind {
-            TokenKind::Identifier(name) => Ok(name),
-            _ => Err(CompileError::new(token.line, token.column, message)),
+    fn consume(&mut self, kind: TokenKind, message: &str) -> Result<Token, CompileError> {
+        if self.check(kind.clone()) {
+            return Ok(self.advance().clone());
         }
+        let token = self.peek();
+        Err(CompileError::source(
+            token.span.line,
+            token.span.column,
+            message,
+        ))
     }
 
-    fn expect(&mut self, kind: &TokenKind, message: &str) -> Result<(), CompileError> {
-        if self.matches(kind) {
-            Ok(())
-        } else {
-            Err(self.error(message))
-        }
-    }
-
-    fn matches(&mut self, kind: &TokenKind) -> bool {
+    fn match_kind(&mut self, kind: TokenKind) -> bool {
         if self.check(kind) {
             self.advance();
             true
@@ -413,238 +691,475 @@ impl Parser {
         }
     }
 
-    fn check(&self, kind: &TokenKind) -> bool {
-        std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(kind)
+    fn check(&self, kind: TokenKind) -> bool {
+        std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(&kind)
     }
 
     fn advance(&mut self) -> &Token {
-        let index = self.current;
-        if !self.check(&TokenKind::Eof) {
+        let token = &self.tokens[self.current];
+        if self.current < self.tokens.len() - 1 {
             self.current += 1;
         }
-        &self.tokens[index]
+        token
+    }
+
+    fn previous(&self) -> &Token {
+        &self.tokens[self.current - 1]
     }
 
     fn peek(&self) -> &Token {
         &self.tokens[self.current]
     }
+}
 
-    fn error(&self, message: impl fmt::Display) -> CompileError {
-        CompileError::new(self.peek().line, self.peek().column, message)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Flow {
+    None,
+    Break,
+    Continue,
+}
+
+struct Interpreter {
+    scopes: Vec<HashMap<String, i64>>,
+    output: String,
+    steps: usize,
+    loop_depth: usize,
+}
+
+impl Interpreter {
+    fn new() -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+            output: String::new(),
+            steps: 0,
+        }
+    }
+
+    fn execute(mut self, statements: &[Statement]) -> Result<String, CompileError> {
+        match self.execute_statements(statements, false)? {
+            Flow::None => Ok(self.output),
+            Flow::Break => Err(CompileError::runtime("unexpected 'break' outside loop")),
+            Flow::Continue => Err(CompileError::runtime("unexpected 'continue' outside loop")),
+        }
+    }
+
+    fn execute_statements(
+        &mut self,
+        statements: &[Statement],
+        block_scope: bool,
+    ) -> Result<Flow, CompileError> {
+        if block_scope {
+            self.scopes.push(HashMap::new());
+        }
+
+        for statement in statements {
+            let flow = self.execute_statement(statement)?;
+            if flow != Flow::None {
+                if block_scope {
+                    self.scopes.pop();
+                }
+                return Ok(flow);
+            }
+        }
+
+        if block_scope {
+            self.scopes.pop();
+        }
+        Ok(Flow::None)
+    }
+
+    fn execute_statement(&mut self, statement: &Statement) -> Result<Flow, CompileError> {
+        self.count_step()?;
+        match statement {
+            Statement::Let { name, value, .. } => {
+                let value = self.evaluate(value)?;
+                self.scopes
+                    .last_mut()
+                    .expect("interpreter always has a global scope")
+                    .insert(name.clone(), value);
+                Ok(Flow::None)
+            }
+            Statement::Assign { name, value, span } => {
+                let value = self.evaluate(value)?;
+                let scope = self
+                    .scopes
+                    .iter_mut()
+                    .rev()
+                    .find(|scope| scope.contains_key(name))
+                    .ok_or_else(|| {
+                        CompileError::source(
+                            span.line,
+                            span.column,
+                            format!("undefined variable '{name}'"),
+                        )
+                    })?;
+                scope.insert(name.clone(), value);
+                Ok(Flow::None)
+            }
+            Statement::Print(expression) => {
+                let value = self.evaluate(expression)?;
+                self.output.push_str(&value.to_string());
+                self.output.push('\n');
+                Ok(Flow::None)
+            }
+            Statement::Block(statements, _) => self.execute_statements(statements, true),
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                if self.evaluate(condition)? != 0 {
+                    self.execute_statement(then_branch)
+                } else if let Some(else_branch) = else_branch {
+                    self.execute_statement(else_branch)
+                } else {
+                    Ok(Flow::None)
+                }
+            }
+            Statement::While { condition, body } => {
+                self.loop_depth += 1;
+                let mut flow = Flow::None;
+                while self.evaluate(condition)? != 0 {
+                    let body_flow = self.execute_statement(body)?;
+                    match body_flow {
+                        Flow::Break => {
+                            flow = Flow::Break;
+                            break;
+                        }
+                        Flow::Continue => continue,
+                        Flow::None => {}
+                    }
+                }
+                self.loop_depth -= 1;
+                if flow == Flow::Break {
+                    Ok(Flow::None)
+                } else {
+                    Ok(Flow::None)
+                }
+            }
+            Statement::Break(_) => Ok(Flow::Break),
+            Statement::Continue(_) => Ok(Flow::Continue),
+        }
+    }
+
+    fn evaluate(&mut self, expression: &Expression) -> Result<i64, CompileError> {
+        self.count_step()?;
+        match &expression.kind {
+            ExpressionKind::Integer(value) => Ok(*value),
+            ExpressionKind::Variable(name) => self
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(name).copied())
+                .ok_or_else(|| {
+                    CompileError::source(
+                        expression.span.line,
+                        expression.span.column,
+                        format!("undefined variable '{name}'"),
+                    )
+                }),
+            ExpressionKind::Unary(UnaryOperator::Minus, operand) => {
+                let value = self.evaluate(operand)?;
+                value.checked_neg().ok_or_else(|| {
+                    CompileError::source(
+                        expression.span.line,
+                        expression.span.column,
+                        "integer overflow during negation",
+                    )
+                })
+            }
+            ExpressionKind::Unary(UnaryOperator::Not, operand) => {
+                let value = self.evaluate(operand)?;
+                Ok(i64::from(value == 0))
+            }
+            ExpressionKind::Binary(left, operator, right) => match operator {
+                BinaryOperator::And => {
+                    let left_value = self.evaluate(left)?;
+                    if left_value == 0 {
+                        Ok(0)
+                    } else {
+                        Ok(i64::from(self.evaluate(right)? != 0))
+                    }
+                }
+                BinaryOperator::Or => {
+                    let left_value = self.evaluate(left)?;
+                    if left_value != 0 {
+                        Ok(1)
+                    } else {
+                        Ok(i64::from(self.evaluate(right)? != 0))
+                    }
+                }
+                _ => {
+                    let left_value = self.evaluate(left)?;
+                    let right_value = self.evaluate(right)?;
+                    match operator {
+                        BinaryOperator::Add => left_value.checked_add(right_value),
+                        BinaryOperator::Subtract => left_value.checked_sub(right_value),
+                        BinaryOperator::Multiply => left_value.checked_mul(right_value),
+                        BinaryOperator::Divide => {
+                            if right_value == 0 {
+                                None
+                            } else {
+                                left_value.checked_div(right_value)
+                            }
+                        }
+                        BinaryOperator::Remainder => {
+                            if right_value == 0 {
+                                None
+                            } else {
+                                left_value.checked_rem(right_value)
+                            }
+                        }
+                        BinaryOperator::Equal => {
+                            return Ok(i64::from(left_value == right_value));
+                        }
+                        BinaryOperator::NotEqual => {
+                            return Ok(i64::from(left_value != right_value));
+                        }
+                        BinaryOperator::Less => {
+                            return Ok(i64::from(left_value < right_value));
+                        }
+                        BinaryOperator::LessEqual => {
+                            return Ok(i64::from(left_value <= right_value));
+                        }
+                        BinaryOperator::Greater => {
+                            return Ok(i64::from(left_value > right_value));
+                        }
+                        BinaryOperator::GreaterEqual => {
+                            return Ok(i64::from(left_value >= right_value));
+                        }
+                        BinaryOperator::And | BinaryOperator::Or => unreachable!(),
+                    }
+                    .ok_or_else(|| {
+                        let operation = match operator {
+                            BinaryOperator::Add => "addition",
+                            BinaryOperator::Subtract => "subtraction",
+                            BinaryOperator::Multiply => "multiplication",
+                            BinaryOperator::Divide => "division",
+                            BinaryOperator::Remainder => "remainder",
+                            _ => "arithmetic",
+                        };
+                        let detail = if matches!(
+                            operator,
+                            BinaryOperator::Divide | BinaryOperator::Remainder
+                        ) && right_value == 0
+                        {
+                            "division by zero".to_string()
+                        } else {
+                            format!("integer overflow during {operation}")
+                        };
+                        CompileError::source(expression.span.line, expression.span.column, detail)
+                    })
+                }
+            },
+        }
+    }
+
+    fn count_step(&mut self) -> Result<(), CompileError> {
+        self.steps += 1;
+        if self.steps > MAX_EXECUTION_STEPS {
+            Err(CompileError::runtime(format!(
+                "execution limit exceeded ({MAX_EXECUTION_STEPS} instructions)"
+            )))
+        } else {
+            Ok(())
+        }
     }
 }
 
-/// Compiles and executes one Rusty source program.
-///
-/// Comparisons produce `1` for true and `0` for false. Any nonzero value is
-/// treated as true in `if` and `while` conditions.
+/// Lexes, parses, and executes one Rusty source program.
 ///
 /// # Examples
-///
 /// ```
 /// # use pycompiler::compiler::compile_and_run;
 /// let output = compile_and_run("let answer = 6 * 7; print answer;")?;
 /// assert_eq!(output, "42\n");
 /// # Ok::<(), pycompiler::compiler::CompileError>(())
 /// ```
-///
-/// # Errors
-///
-/// Returns [`CompileError`] for invalid syntax, undefined variables, arithmetic
-/// faults, or programs that exceed the instruction limit.
 pub fn compile_and_run(source: &str) -> Result<String, CompileError> {
-    let code = Parser::new(lex(source)?).compile()?;
-    execute(&code)
-}
-
-/// Runs stack-machine bytecode and returns the text written by `print`.
-fn execute(code: &[Instruction]) -> Result<String, CompileError> {
-    let mut stack = Vec::new();
-    let mut variables = HashMap::new();
-    let mut output = String::new();
-    let mut instruction_pointer = 0;
-    let mut executed_instructions = 0;
-
-    while instruction_pointer < code.len() {
-        executed_instructions += 1;
-        if executed_instructions > MAX_EXECUTION_STEPS {
-            return Err(CompileError {
-                message: format!(
-                    "runtime error: execution limit exceeded ({MAX_EXECUTION_STEPS} instructions)"
-                ),
-            });
-        }
-        let instruction = &code[instruction_pointer];
-        match instruction {
-            Instruction::Push(value) => stack.push(*value),
-            Instruction::Load(name) => {
-                let value = variables.get(name).copied().ok_or_else(|| CompileError {
-                    message: format!("runtime error: undefined variable '{name}'"),
-                })?;
-                stack.push(value);
-            }
-            Instruction::Store(name) => {
-                let value = stack.pop().ok_or_else(stack_underflow)?;
-                variables.insert(name.clone(), value);
-            }
-            Instruction::Add => apply_binary(&mut stack, i64::checked_add, "addition")?,
-            Instruction::Subtract => apply_binary(&mut stack, i64::checked_sub, "subtraction")?,
-            Instruction::Multiply => apply_binary(&mut stack, i64::checked_mul, "multiplication")?,
-            Instruction::Divide => {
-                let right = stack.pop().ok_or_else(stack_underflow)?;
-                let left = stack.pop().ok_or_else(stack_underflow)?;
-                if right == 0 {
-                    return Err(CompileError {
-                        message: "runtime error: division by zero".into(),
-                    });
-                }
-                stack.push(
-                    left.checked_div(right)
-                        .ok_or_else(|| arithmetic_overflow("division"))?,
-                );
-            }
-            Instruction::Equal => apply_comparison(&mut stack, |left, right| left == right)?,
-            Instruction::NotEqual => apply_comparison(&mut stack, |left, right| left != right)?,
-            Instruction::Less => apply_comparison(&mut stack, |left, right| left < right)?,
-            Instruction::LessEqual => apply_comparison(&mut stack, |left, right| left <= right)?,
-            Instruction::Greater => apply_comparison(&mut stack, |left, right| left > right)?,
-            Instruction::GreaterEqual => apply_comparison(&mut stack, |left, right| left >= right)?,
-            Instruction::Negate => {
-                let value = stack.pop().ok_or_else(stack_underflow)?;
-                stack.push(
-                    value
-                        .checked_neg()
-                        .ok_or_else(|| arithmetic_overflow("negation"))?,
-                );
-            }
-            Instruction::Print => {
-                let value = stack.pop().ok_or_else(stack_underflow)?;
-                output.push_str(&format!("{value}\n"));
-            }
-            Instruction::Jump(target) => {
-                instruction_pointer = *target;
-                continue;
-            }
-            Instruction::JumpIfFalse(target) => {
-                if stack.pop().ok_or_else(stack_underflow)? == 0 {
-                    instruction_pointer = *target;
-                    continue;
-                }
-            }
-        }
-        instruction_pointer += 1;
-    }
-
-    Ok(output)
-}
-
-fn apply_comparison(
-    stack: &mut Vec<i64>,
-    comparison: fn(i64, i64) -> bool,
-) -> Result<(), CompileError> {
-    let right = stack.pop().ok_or_else(stack_underflow)?;
-    let left = stack.pop().ok_or_else(stack_underflow)?;
-    stack.push(i64::from(comparison(left, right)));
-    Ok(())
-}
-
-fn apply_binary(
-    stack: &mut Vec<i64>,
-    operation: fn(i64, i64) -> Option<i64>,
-    name: &str,
-) -> Result<(), CompileError> {
-    let right = stack.pop().ok_or_else(stack_underflow)?;
-    let left = stack.pop().ok_or_else(stack_underflow)?;
-    stack.push(operation(left, right).ok_or_else(|| arithmetic_overflow(name))?);
-    Ok(())
-}
-
-fn stack_underflow() -> CompileError {
-    CompileError {
-        message: "runtime error: invalid compiler stack state".into(),
-    }
-}
-
-fn arithmetic_overflow(operation: &str) -> CompileError {
-    CompileError {
-        message: format!("runtime error: integer overflow during {operation}"),
-    }
+    let tokens = lex(source)?;
+    let statements = Parser::new(tokens).parse()?;
+    Interpreter::new().execute(&statements)
 }
 
 #[cfg(test)]
 mod tests {
     use super::compile_and_run;
 
-    #[test]
-    fn compiles_variables_and_respects_operator_precedence() {
-        let output = compile_and_run("let answer = 2 + 3 * 4; print answer;")
-            .expect("valid program should run");
-        assert_eq!(output, "14\n");
+    fn run(source: &str) -> String {
+        compile_and_run(source).expect("valid Rusty program should execute")
+    }
+
+    fn error(source: &str) -> super::CompileError {
+        compile_and_run(source).expect_err("invalid Rusty program should fail")
     }
 
     #[test]
-    fn supports_assignment_and_parentheses() {
-        let output = compile_and_run("let value = 2; value = (value + 1) * 3; print value;")
-            .expect("valid program should run");
-        assert_eq!(output, "9\n");
+    fn arithmetic_and_operator_precedence() {
+        assert_eq!(run("print 2 + 3 * 4; print (2 + 3) * 4;"), "14\n20\n");
     }
 
     #[test]
-    fn reports_undefined_variables_with_source_location() {
-        let error = compile_and_run("print missing;").expect_err("undefined name should fail");
-        assert!(error
-            .to_string()
-            .contains("1:7: undefined variable 'missing'"));
+    fn remainder_and_unary_operators() {
+        assert_eq!(
+            run("print 17 % 5; print -(-7); print !0; print !3;"),
+            "2\n7\n1\n0\n"
+        );
     }
 
     #[test]
-    fn reports_division_by_zero() {
-        let error =
-            compile_and_run("print 8 / (3 - 3);").expect_err("division by zero should fail");
-        assert_eq!(error.to_string(), "runtime error: division by zero");
+    fn assignment_updates_the_nearest_visible_scope() {
+        assert_eq!(
+            run("let x = 1; { x = 8; let y = 2; print x + y; } print x;"),
+            "10\n8\n"
+        );
     }
 
     #[test]
-    fn selects_if_else_branch_from_comparison() {
-        let output = compile_and_run("let value = 5; if value >= 5 { print 1; } else { print 0; }")
-            .expect("valid conditional should run");
-        assert_eq!(output, "1\n");
+    fn block_can_shadow_outer_variables() {
+        assert_eq!(run("let x = 1; { let x = 9; print x; } print x;"), "9\n1\n");
     }
 
     #[test]
-    fn supports_all_comparison_operators() {
-        let output = compile_and_run(
-            "print 1 == 1; print 1 != 2; print 1 < 2; print 2 <= 2; print 3 > 2; print 3 >= 3;",
-        )
-        .expect("valid comparisons should run");
-        assert_eq!(output, "1\n1\n1\n1\n1\n1\n");
+    fn undefined_assignment_reports_location() {
+        let diagnostic = error("let x = 1;\nx = missing;");
+        assert_eq!(diagnostic.line(), Some(2));
+        assert_eq!(diagnostic.column(), Some(5));
     }
 
     #[test]
-    fn runs_while_loop_and_preserves_outer_variables() {
-        let output = compile_and_run(
-            "let total = 0; let index = 1; while index <= 5 { total = total + index; index = index + 1; } print total;",
-        )
-        .expect("valid loop should run");
-        assert_eq!(output, "15\n");
+    fn undefined_variable_in_expression_reports_location() {
+        let diagnostic = error("print missing;");
+        assert_eq!(diagnostic.line(), Some(1));
+        assert_eq!(diagnostic.column(), Some(7));
     }
 
     #[test]
-    fn keeps_block_variables_out_of_outer_scope() {
-        let error = compile_and_run("if 1 { let inside = 3; } print inside;")
-            .expect_err("block-local variable should not escape");
-        assert!(error.to_string().contains("undefined variable 'inside'"));
+    fn duplicate_declarations_are_allowed_only_when_scoped() {
+        assert_eq!(run("let x = 1; { let x = 2; print x; }"), "2\n");
+        let diagnostic = error("let x = 1; let x = 2;");
+        assert!(!diagnostic.is_runtime());
     }
 
     #[test]
-    fn reports_unclosed_blocks() {
-        let error = compile_and_run("if 1 { print 2;").expect_err("unclosed block should fail");
-        assert!(error.to_string().contains("expected '}' after block"));
+    fn duplicate_declaration_reports_location_in_the_parser() {
+        let diagnostic = error("let x = 1; let x = 2;");
+        assert_eq!(diagnostic.line(), Some(1));
+        assert_eq!(diagnostic.column(), Some(16));
     }
 
     #[test]
-    fn stops_non_terminating_loops_at_the_execution_limit() {
-        let error = compile_and_run("while 1 {}").expect_err("infinite loop should be stopped");
-        assert!(error.to_string().contains("execution limit exceeded"));
+    fn all_comparison_operators() {
+        assert_eq!(
+            run(
+                "print 1 == 1; print 1 != 2; print 1 < 2; print 2 <= 2; print 3 > 2; print 3 >= 3;"
+            ),
+            "1\n1\n1\n1\n1\n1\n"
+        );
+    }
+
+    #[test]
+    fn logical_operators_use_short_circuit_evaluation() {
+        assert_eq!(
+            run("print 0 && missing; print 1 || missing; print 3 && 4; print 0 || 4;"),
+            "0\n1\n1\n1\n"
+        );
+    }
+
+    #[test]
+    fn if_else_and_nested_blocks() {
+        assert_eq!(
+            run("let x = 4; if x >= 4 { if x == 4 { print 42; } } else { print 0; }"),
+            "42\n"
+        );
+    }
+
+    #[test]
+    fn while_loop_and_break() {
+        assert_eq!(
+            run("let i = 0; while i < 10 { i = i + 1; if i == 4 { break; } } print i;"),
+            "4\n"
+        );
+    }
+
+    #[test]
+    fn while_loop_and_continue() {
+        assert_eq!(
+            run("let i = 0; let total = 0; while i < 5 { i = i + 1; if i == 3 { continue; } total = total + i; } print total;"),
+            "12\n"
+        );
+    }
+
+    #[test]
+    fn break_outside_loop_is_rejected_by_parser() {
+        let diagnostic = error("break;");
+        assert_eq!(
+            diagnostic.message(),
+            "'break' is only allowed inside a loop"
+        );
+    }
+
+    #[test]
+    fn continue_outside_loop_is_rejected_by_parser() {
+        let diagnostic = error("continue;");
+        assert_eq!(
+            diagnostic.message(),
+            "'continue' is only allowed inside a loop"
+        );
+    }
+
+    #[test]
+    fn empty_program_succeeds() {
+        assert_eq!(run("// comment only"), "");
+    }
+
+    #[test]
+    fn comments_and_crlf_are_supported() {
+        assert_eq!(run("// comment\r\nlet x = 7;\r\nprint x;"), "7\n");
+    }
+
+    #[test]
+    fn missing_semicolon_reports_source_location() {
+        let diagnostic = error("print 1");
+        assert_eq!(diagnostic.line(), Some(1));
+        assert_eq!(diagnostic.column(), Some(8));
+    }
+
+    #[test]
+    fn unclosed_block_reports_opening_location() {
+        let diagnostic = error("if 1 { print 2;");
+        assert_eq!(diagnostic.line(), Some(1));
+        assert_eq!(diagnostic.column(), Some(7));
+    }
+
+    #[test]
+    fn unexpected_character_reports_location() {
+        let diagnostic = error("print @;");
+        assert_eq!(diagnostic.line(), Some(1));
+        assert_eq!(diagnostic.column(), Some(7));
+    }
+
+    #[test]
+    fn division_and_remainder_by_zero_report_source_location() {
+        assert_eq!(error("print 1 / 0;").message(), "division by zero");
+        assert_eq!(error("print 1 % 0;").message(), "division by zero");
+    }
+
+    #[test]
+    fn integer_overflow_is_rejected() {
+        let diagnostic = error("print 9223372036854775807 + 1;");
+        assert!(diagnostic.message().contains("integer overflow"));
+    }
+
+    #[test]
+    fn source_length_limit_is_enforced() {
+        let diagnostic = error(&" ".repeat(super::MAX_SOURCE_LENGTH + 1));
+        assert!(diagnostic.message().contains("source is too large"));
+    }
+
+    #[test]
+    fn infinite_loop_stops_at_the_execution_limit() {
+        let diagnostic = error("while 1 {}");
+        assert!(diagnostic.message().contains("execution limit exceeded"));
     }
 }
