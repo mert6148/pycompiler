@@ -1,0 +1,1 @@
+C:\Users\mertd\OneDrive\Masaüstü\pycompiler\target\release\pycompiler.exe: C:\Users\mertd\OneDrive\Masaüstü\pycompiler\src\compiler.rs C:\Users\mertd\OneDrive\Masaüstü\pycompiler\src\main.rs C:\Users\mertd\OneDrive\Masaüstü\pycompiler\web\app.js C:\Users\mertd\OneDrive\Masaüstü\pycompiler\web\index.html C:\Users\mertd\OneDrive\Masaüstü\pycompiler\web\style.css
