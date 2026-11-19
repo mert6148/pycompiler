@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "skills": {
+    "anyway-config": {
+      "source": "palkan/anyway_config",
+      "commit": "afcc843b834a965dcd5f8aa5b4b6af757bde93b6",
+      "sourceType": "github",
+      "skillPath": "skills/anyway-config/SKILL.md",
+      "computedHash": "0f6375039e0c247894041440d730dae2e4508cbb56926aac68f92b35fa2578a5",
+      "installMode": "copy"
+    }
+  }
+}
