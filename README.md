@@ -1,8 +1,8 @@
 # Rust IDE
 
 Rust IDE is a small, local web IDE with a VS Code-inspired layout and a Rust
-compiler for the included `Rusty` teaching language. It uses only the Rust
-standard library.
+compiler for the included `Rusty` teaching language. The compiler and its
+clients are written in Rust; the project uses SQLite for local code history.
 
 The compiler implementation and its tests are in `src/compiler.rs`; `src/lib.rs`
 exports the compiler API, and `src/main.rs` hosts the local web server.
@@ -23,9 +23,11 @@ cargo run
 ```
 
 On Windows, `run.bat` or `npm start` also starts the app. `npm test` runs the
-Rust test suite, `npm run build` makes a release build, and
-`npm run format:check` checks Rust formatting. Node.js is needed only for the
-`npm` commands; the app itself uses Cargo and the Rust standard library.
+Rust test suite, `npm run build` makes a release build, `npm run format:check`
+checks Rust formatting, and `npm run compile -- example.rusty` runs a Rusty
+source file with the command-line client. Node.js is needed only for the `npm`
+commands. The compiler code is shared by the browser IDE and the `rusty`
+command-line client.
 
 Open [http://127.0.0.1:3030](http://127.0.0.1:3030). The server binds to
 localhost only. Press **Run** or **Ctrl+Enter** to compile and execute the
@@ -34,6 +36,16 @@ in the browser's local storage, and shows clickable diagnostics with line
 numbers in the Problems panel. Each editor save is also versioned in the local
 SQLite database; the **Sürümler** panel can restore earlier versions. Changed
 Rust files under `src/` are snapshotted when the server starts.
+
+The compiler can also be used directly from a terminal:
+
+```powershell
+cargo run --bin rusty -- examples\hello.rusty
+Get-Content examples\hello.rusty | cargo run --bin rusty
+```
+
+The `rusty` client prints program output to standard output and reports
+compiler or file errors to standard error with a nonzero exit code.
 
 ## Rusty language
 

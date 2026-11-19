@@ -5,6 +5,7 @@
   "description": "A local IDE and compiler for the Rusty teaching language, built with Rust.",
   "scripts": {
     "start": "cargo run",
+    "compile": "cargo run --bin rusty --",
     "build": "cargo build --release",
     "test": "cargo test",
     "format:check": "cargo fmt --check"

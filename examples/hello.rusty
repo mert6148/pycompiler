@@ -1,0 +1,14 @@
+// Add the numbers from one through five.
+let total = 0;
+let index = 1;
+
+while index <= 5 {
+    total = total + index;
+    index = index + 1;
+}
+
+if total == 15 {
+    print total;
+} else {
+    print 0;
+}

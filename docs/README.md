@@ -37,6 +37,7 @@ overview is also available alongside the compiler API.
 | --- | --- |
 | `src/lib.rs` | Exports the compiler module and includes this guide as the crate-level Rust documentation. |
 | `src/main.rs` | Starts the localhost HTTP server, serves the IDE assets, and forwards `/api/run` requests to the compiler library. |
+| `src/bin/rusty.rs` | Command-line client that runs a Rusty file or source from standard input. |
 | `src/compiler.rs` | Implements the Rusty lexer, parser, bytecode instructions, virtual machine, and compiler tests. |
 | `src/database.rs` | Creates SQLite code history, stores editor versions, and snapshots changed Rust source files. |
 | `web/index.html` | IDE structure: file explorer, editor, output panel, and status bar. |
@@ -65,6 +66,19 @@ overview is also available alongside the compiler API.
 8. The virtual machine executes the bytecode and collects `print` output.
    Arithmetic is checked, and execution stops after one million instructions.
 9. The server returns the output as plain text, or a diagnostic with HTTP 400.
+
+The `rusty` command-line client uses the same `compiler::compile_and_run`
+function. Give it a `.rusty` file or pipe source through standard input:
+
+```powershell
+cargo run --bin rusty -- examples\hello.rusty
+Get-Content examples\hello.rusty | cargo run --bin rusty
+```
+
+The runnable sample is `examples/hello.rusty`.
+
+Compiler diagnostics are printed to standard error and cause a nonzero exit
+code. The command-line client tests are in `tests/rusty_cli.rs`.
 
 The SQLite database is local and is excluded from Git by `.gitignore`. Versions
 are stored as plain text in the database; this provides history and recovery,
