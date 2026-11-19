@@ -1,8 +1,4 @@
-#![doc = include_str!("../docs/README.md")]
-
-pub mod compiler;
-
-use compiler::compile_and_run;
+use pycompiler::compiler::compile_and_run;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;

@@ -1,8 +1,17 @@
+//! Lexer, parser, bytecode compiler, and virtual machine for the Rusty language.
+//!
+//! [`compile_and_run`] is the module's entry point. Source is tokenized with
+//! line and column locations, parsed into stack-machine instructions, and then
+//! executed with checked integer arithmetic.
+
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 const MAX_EXECUTION_STEPS: usize = 1_000_000;
 
+/// An error found while compiling or executing a Rusty program.
+///
+/// Syntax and name errors include a one-based `line:column` location.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
     message: String,
@@ -59,6 +68,7 @@ struct Token {
     column: usize,
 }
 
+/// Converts source text into tokens while retaining source locations.
 fn lex(source: &str) -> Result<Vec<Token>, CompileError> {
     let characters: Vec<char> = source.chars().collect();
     let (mut index, mut line, mut column) = (0, 1, 1);
@@ -194,6 +204,7 @@ enum Instruction {
     JumpIfFalse(usize),
 }
 
+/// Parses statements and emits bytecode while validating variable scope.
 struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -284,6 +295,7 @@ impl Parser {
         Err(self.error("expected a declaration, assignment, print, if, or while statement"))
     }
 
+    // Precedence climbing keeps arithmetic and comparisons in one parser.
     fn expression(&mut self, minimum_precedence: u8) -> Result<(), CompileError> {
         if self.matches(&TokenKind::Minus) {
             self.expression(4)?;
@@ -339,6 +351,7 @@ impl Parser {
         Ok(())
     }
 
+    // Each block gets a temporary declaration scope; outer assignments remain valid.
     fn block(&mut self) -> Result<(), CompileError> {
         self.expect(&TokenKind::LeftBrace, "expected '{' before block")?;
         let outer_variables = self.declared.clone();
@@ -421,11 +434,30 @@ impl Parser {
     }
 }
 
+/// Compiles and executes one Rusty source program.
+///
+/// Comparisons produce `1` for true and `0` for false. Any nonzero value is
+/// treated as true in `if` and `while` conditions.
+///
+/// # Examples
+///
+/// ```
+/// # use pycompiler::compiler::compile_and_run;
+/// let output = compile_and_run("let answer = 6 * 7; print answer;")?;
+/// assert_eq!(output, "42\n");
+/// # Ok::<(), pycompiler::compiler::CompileError>(())
+/// ```
+///
+/// # Errors
+///
+/// Returns [`CompileError`] for invalid syntax, undefined variables, arithmetic
+/// faults, or programs that exceed the instruction limit.
 pub fn compile_and_run(source: &str) -> Result<String, CompileError> {
     let code = Parser::new(lex(source)?).compile()?;
     execute(&code)
 }
 
+/// Runs stack-machine bytecode and returns the text written by `print`.
 fn execute(code: &[Instruction]) -> Result<String, CompileError> {
     let mut stack = Vec::new();
     let mut variables = HashMap::new();

@@ -1,19 +1,17 @@
 {
-    "name": "pycompiler",
-    "version": "1.0.0",
-    "description": "A simple Python compiler written in Rust ",
-    "main": "src/main.rs",
-    "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
-    },
-    "keywords": [],
-    "author": "",
-    "license": "MIT",
-    "dependencies": {
-        "serde": "^1.0.130",
-        "serde_json": "^1.0.68"
-    },
-    "devDependencies": {
-        "wasm-pack": "^0.10.1"
-    }
+  "name": "pycompiler",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local IDE and compiler for the Rusty teaching language, built with Rust.",
+  "scripts": {
+    "start": "cargo run",
+    "build": "cargo build --release",
+    "test": "cargo test",
+    "format:check": "cargo fmt --check"
+  },
+  "keywords": [
+    "rust",
+    "compiler",
+    "ide"
+  ]
 }
