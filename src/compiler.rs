@@ -732,6 +732,7 @@ impl Interpreter {
             scopes: vec![HashMap::new()],
             output: String::new(),
             steps: 0,
+            loop_depth: 0,
         }
     }
 
@@ -1061,7 +1062,7 @@ mod tests {
     #[test]
     fn logical_operators_use_short_circuit_evaluation() {
         assert_eq!(
-            run("print 0 && missing; print 1 || missing; print 3 && 4; print 0 || 4;"),
+            run("print 0 && (1 / 0); print 1 || (1 / 0); print 3 && 4; print 0 || 4;"),
             "0\n1\n1\n1\n"
         );
     }
@@ -1129,7 +1130,7 @@ mod tests {
     fn unclosed_block_reports_opening_location() {
         let diagnostic = error("if 1 { print 2;");
         assert_eq!(diagnostic.line(), Some(1));
-        assert_eq!(diagnostic.column(), Some(7));
+        assert_eq!(diagnostic.column(), Some(6));
     }
 
     #[test]
