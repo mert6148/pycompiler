@@ -3,64 +3,113 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#1e1e1e">
-    <title>Rust IDE</title>
+    <meta name="theme-color" content="#0d1117">
+    <title>Rusty Studio</title>
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
-    <div class="app">
-      <header class="titlebar">
-        <div class="brand"><span class="brand-mark">R</span><span>Rust IDE</span></div>
-        <div class="window-title">pycompiler — main.rusty</div>
-        <div class="title-actions"><span>●</span><span>◻</span><span>×</span></div>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Rusty Studio ana sayfa">
+          <span class="brand-mark">R</span>
+          <span class="brand-name">rusty<span>studio</span></span>
+        </a>
+        <div class="project-location">
+          <span class="location-dot"></span>
+          <span>PYCOMPILER</span><span class="location-separator">/</span><span class="current-file">main.rusty</span>
+        </div>
+        <div class="top-actions">
+          <span class="server-badge"><span></span> YEREL</span>
+          <button id="run-button" class="run-button" title="Programı çalıştır (Ctrl+Enter)">
+            <span aria-hidden="true">▶</span> Çalıştır <kbd>Ctrl ↵</kbd>
+          </button>
+        </div>
       </header>
 
       <div class="workbench">
-        <nav class="activity-bar" aria-label="Etkinlikler">
-          <button class="activity active" aria-label="Dosyalar" title="Dosyalar">▤</button>
-          <button class="activity" aria-label="Arama" title="Arama">⌕</button>
-          <button class="activity" aria-label="Kaynak kodu" title="Kaynak kodu">⑂</button>
-          <div class="activity-spacer"></div>
-          <button class="activity" aria-label="Ayarlar" title="Ayarlar">⚙</button>
-        </nav>
+        <aside class="sidebar" aria-label="Proje gezgini">
+          <div class="sidebar-heading">
+            <span>GEZGİN</span>
+            <button class="icon-button" type="button" aria-label="Gezgin seçenekleri">···</button>
+          </div>
+          <button class="workspace-root" type="button">
+            <span class="chevron">⌄</span><span>PYCOMPILER</span>
+          </button>
+          <button class="tree-file selected" type="button" aria-current="page">
+            <span class="file-icon">R</span><span>main.rusty</span><span id="save-indicator" class="save-indicator" aria-label="Kaydedildi"></span>
+          </button>
 
-        <aside class="explorer">
-          <div class="section-heading">GEZGİN</div>
-          <div class="project-name"><span class="chevron">⌄</span> PYCOMPILER</div>
-          <button class="file-entry selected"><span class="file-icon">R</span> main.rusty</button>
-          <div class="explorer-note">Mini dil dosyaları<br><span>Rust derleyicisi ile çalışır</span></div>
+          <div class="sidebar-spacer"></div>
+          <div class="compiler-card">
+            <span class="compiler-symbol">λ</span>
+            <span class="compiler-description"><strong>Rusty Compiler</strong><small>Tamsayı dili · v0.1</small></span>
+            <span class="ready-dot" title="Derleyici hazır"></span>
+          </div>
         </aside>
 
-        <main class="main">
-          <div class="tabbar">
-            <div class="tab active"><span class="file-icon">R</span> main.rusty <span class="tab-close">×</span></div>
-            <div class="run-group">
-              <button id="run-button" class="run-button" title="Çalıştır (Ctrl+Enter)"><span>▶</span> Çalıştır</button>
+        <main class="workspace">
+          <div class="tab-strip">
+            <div class="file-tab">
+              <span class="file-icon">R</span><span>main.rusty</span>
+              <span id="dirty-indicator" class="dirty-indicator" aria-label="Kaydedilmemiş değişiklik"></span>
             </div>
+            <div class="tab-meta" id="cursor-position">Satır 1, Sütun 1</div>
           </div>
 
-          <div class="breadcrumb"><span>pycompiler</span><span>›</span><span>main.rusty</span></div>
+          <div class="editor-toolbar">
+            <div class="breadcrumbs"><span>src</span><span class="breadcrumb-separator">›</span><span>main.rusty</span></div>
+            <span id="save-status" class="save-status">Tüm değişiklikler kaydedildi</span>
+          </div>
 
-          <section class="editor-wrap" aria-label="Kod editörü">
+          <section class="editor-stage" aria-label="Kod editörü">
             <div id="gutter" class="gutter" aria-hidden="true"></div>
-            <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Kod editörü"></textarea>
+            <div class="code-area">
+              <pre id="highlight" class="highlight" aria-hidden="true"></pre>
+              <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Rusty kaynak kodu"></textarea>
+            </div>
           </section>
 
-          <section class="panel">
-            <div class="panel-tabs">
-              <span class="panel-tab active">ÇIKTI</span>
-              <span class="panel-tab">SORUNLAR</span>
-              <span class="panel-tab">TERMİNAL</span>
-              <span id="panel-status" class="panel-status">Hazır</span>
+          <section class="bottom-panel" aria-label="Derleyici sonuçları">
+            <div class="panel-heading">
+              <div class="panel-tabs" role="tablist" aria-label="Sonuç panelleri">
+                <button class="panel-tab active" type="button" role="tab" aria-selected="true" data-panel="output">ÇIKTI</button>
+                <button class="panel-tab" type="button" role="tab" aria-selected="false" data-panel="problems">
+                  SORUNLAR <span id="problem-count" class="problem-count">0</span>
+                </button>
+              </div>
+              <div class="panel-actions">
+                <span id="panel-status" class="panel-status">Çalıştırma bekleniyor</span>
+                <button id="clear-output" class="icon-button" type="button" title="Çıktıyı temizle" aria-label="Çıktıyı temizle">⌫</button>
+              </div>
             </div>
-            <pre id="output" class="output">Program çıktısı burada görüntülenir.</pre>
+
+            <div class="panel-content">
+              <div id="output-panel" class="panel-view">
+                <div id="output-empty" class="empty-state">
+                  <span class="empty-icon">›_</span>
+                  <div><strong>Henüz çıktı yok</strong><span>Programı çalıştırmak için <kbd>Ctrl</kbd> + <kbd>Enter</kbd> tuşlarına bas.</span></div>
+                </div>
+                <div id="output-result" class="output-result" hidden>
+                  <div class="result-label"><span id="result-indicator" class="result-indicator"></span><span id="result-summary">PROGRAM ÇIKTISI</span></div>
+                  <pre id="output" class="output"></pre>
+                </div>
+              </div>
+
+              <div id="problems-panel" class="panel-view problems-view" hidden>
+                <div id="problems-empty" class="empty-state">
+                  <span class="success-icon">✓</span>
+                  <div><strong>Her şey yolunda</strong><span>Henüz derleme hatası bulunmuyor.</span></div>
+                </div>
+                <div id="problem-list" class="problem-list"></div>
+              </div>
+            </div>
           </section>
         </main>
       </div>
 
       <footer class="statusbar">
-        <div><span class="status-branch">⑂</span> main</div>
-        <div class="status-right"><span id="cursor-position">Satır 1, Sütun 1</span><span>UTF-8</span><span>Rusty</span><span>● Derleyici hazır</span></div>
+        <div class="status-left"><span class="status-branch">⑂</span><span>main</span><span id="status-message">Derleyici hazır</span></div>
+        <div class="status-right"><span id="status-cursor">Satır 1, Sütun 1</span><span>Boşluk: 4</span><span>UTF-8</span><span class="language-status"><i></i> Rusty</span></div>
       </footer>
     </div>
     <script src="/app.js"></script>
