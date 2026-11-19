@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["pycompiler",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.100.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"pycompiler/compiler/struct.CompileError.html\" title=\"struct pycompiler::compiler::CompileError\">CompileError</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.100.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"enum\" href=\"pycompiler/compiler/enum.Instruction.html\" title=\"enum pycompiler::compiler::Instruction\">Instruction</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.100.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"pycompiler/compiler/struct.Token.html\" title=\"struct pycompiler::compiler::Token\">Token</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.100.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"enum\" href=\"pycompiler/compiler/enum.TokenKind.html\" title=\"enum pycompiler::compiler::TokenKind\">TokenKind</a>",0]]],["pycompiler",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.100.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"pycompiler/compiler/struct.CompileError.html\" title=\"struct pycompiler::compiler::CompileError\">CompileError</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[1143,310]}
