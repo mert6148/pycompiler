@@ -549,6 +549,7 @@ impl Parser {
         let mut left = self.and_expression()?;
         while self.match_kind(TokenKind::PipePipe) {
             let operator = self.previous().span;
+            self.count_expression_operator(operator)?;
             let right = self.and_expression()?;
             left = Expression {
                 kind: ExpressionKind::Binary(Box::new(left), BinaryOperator::Or, Box::new(right)),
@@ -562,6 +563,7 @@ impl Parser {
         let mut left = self.comparison_expression()?;
         while self.match_kind(TokenKind::AmpAmp) {
             let operator = self.previous().span;
+            self.count_expression_operator(operator)?;
             let right = self.comparison_expression()?;
             left = Expression {
                 kind: ExpressionKind::Binary(Box::new(left), BinaryOperator::And, Box::new(right)),
@@ -592,6 +594,7 @@ impl Parser {
             let Some(operator) = operator else {
                 break;
             };
+            self.count_expression_operator(self.previous().span)?;
             let right = self.additive_expression()?;
             left = Expression {
                 span: left.span,
@@ -614,6 +617,7 @@ impl Parser {
             let Some(operator) = operator else {
                 break;
             };
+            self.count_expression_operator(self.previous().span)?;
             let right = self.multiplicative_expression()?;
             left = Expression {
                 span: left.span,
@@ -638,6 +642,7 @@ impl Parser {
             let Some(operator) = operator else {
                 break;
             };
+            self.count_expression_operator(self.previous().span)?;
             let right = self.unary_expression()?;
             left = Expression {
                 span: left.span,
@@ -650,6 +655,7 @@ impl Parser {
     fn unary_expression(&mut self) -> Result<Expression, CompileError> {
         if self.match_kind(TokenKind::Minus) {
             let operator_span = self.previous().span;
+            self.count_expression_operator(operator_span)?;
             let operand = self.unary_expression()?;
             return Ok(Expression {
                 span: operator_span,
@@ -658,6 +664,7 @@ impl Parser {
         }
         if self.match_kind(TokenKind::Bang) {
             let operator_span = self.previous().span;
+            self.count_expression_operator(operator_span)?;
             let operand = self.unary_expression()?;
             return Ok(Expression {
                 span: operator_span,

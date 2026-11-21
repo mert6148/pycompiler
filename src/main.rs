@@ -1,22 +1,29 @@
 use pycompiler::compiler::compile_and_run;
 use pycompiler::database::{Database, VersionSource};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 
 const MAX_REQUEST_SIZE: usize = 1024 * 1024;
-const ADDRESS: &str = "127.0.0.1:3030";
+const DEFAULT_ADDRESS: &str = "127.0.0.1:3030";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let database_path = project_root.join("data").join("code-history.sqlite3");
+    let data_directory = match std::env::var_os("RUSTY_DATA_DIR") {
+        Some(path) => Path::new(&path).to_path_buf(),
+        None => project_root.join("data"),
+    };
+    let database_path = data_directory.join("code-history.sqlite3");
     let database = Database::open(&database_path)?;
     let saved_sources = database.snapshot_rust_sources(&project_root.join("src"), project_root)?;
     println!("Stored {saved_sources} changed Rust source file(s) in code history.");
 
-    let listener = TcpListener::bind(ADDRESS)?;
-    println!("Rust IDE is ready at http://{ADDRESS}");
+    let address: SocketAddr = std::env::var("RUSTY_BIND_ADDRESS")
+        .unwrap_or_else(|_| DEFAULT_ADDRESS.to_owned())
+        .parse()?;
+    let listener = TcpListener::bind(address)?;
+    println!("Rust IDE is ready at http://{address}");
 
     for connection in listener.incoming() {
         match connection {
